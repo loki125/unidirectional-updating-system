@@ -1,0 +1,31 @@
+x-name: daedalus_um
+
+services:
+  mongo:
+    image: mongo:6.0
+    command: mongod --quiet --logpath /data/db/mongod.log --logappend
+    container_name: um-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    #command: bash -c "mongod --quiet > /dev/null 2>&1"
+
+  backend:
+    build: ./backend
+    image: um-backend:latest
+    container_name: um-backend
+    restart: "no"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URI: "mongodb://mongo:27017/um-db"
+
+
+volumes:
+  mongo_data:
