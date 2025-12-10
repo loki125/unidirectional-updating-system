@@ -16,7 +16,7 @@ async def startup_event():
 @app.on_event("startup")
 async def startup_test_event():
     print("printing all packages")
-    await db_instance.print_all_packages()
+    await db_instance.print_packages(30)
     print("DONE")
 
     file_path = await service_factory.get_engine("Debian").request_download_file("python3-lib389_3.1.2+dfsg1-1_Debian")
