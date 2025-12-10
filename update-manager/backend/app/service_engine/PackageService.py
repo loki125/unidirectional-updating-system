@@ -13,17 +13,28 @@ class PackageService(ABC):
 
     @abstractmethod
     async def refresh_metadata(self) -> None:
+        """
+        updates database for latest metadata of packages that the service provides
+        """
         pass
 
     @abstractmethod
     async def request_download_file(self, db_packet_id : str) -> str | None:
+        """
+        gets a package_id, and downloads its package from the service
+
+        :param db_packet_id: The package id of the package to download
+        :return file_name of the downloaded package
+        """
         pass
 
     @abstractmethod
     async def _parse_packages_file(self, packages_file_path: str) -> int:
         """
-        Internal function: gets an OPEN file, and parse Packages.gz into a JSON in the PackegeServiceDB format.
-        amount_of_changed_packets : return
+        Internal function: gets an OPEN file, and parse Packages.gz into a Dict in the PackegeServiceDB format.
+
+        :param packages_file_path: The path to the packages.gz file
+        :return amount_of_changed_packets
         """
         pass
 
@@ -31,7 +42,9 @@ class PackageService(ABC):
     async def _insert_metadata_to_db(self, package : str) -> int:
         """
         Internal function: inserts a parsed package into the PackegeServiceDB
-        if a package was changed : return
+
+        :param package: The package to insert
+        :return if a package was changed
         """
         pass
 

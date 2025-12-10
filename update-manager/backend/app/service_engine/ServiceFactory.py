@@ -15,6 +15,8 @@ class SearchFactory:
         """
         Return an engine instance for the given package type,
         already initialized with the global DB instance.
+
+        :param pack_type: The package type to use.
         """
         class_name = f"{pack_type}PackageService"
         engine_cls = self._engine_classes.get(class_name)
@@ -25,6 +27,9 @@ class SearchFactory:
         return engine_cls(self._global_db_instance)
 
     async def global_refresh_metadata(self):
+        """
+        updates database for latest metadata of ALL packages from every service
+        """
         engine = None
         try:
             for engine_class in self._engine_classes.values():
