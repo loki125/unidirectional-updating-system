@@ -10,7 +10,8 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    #command: bash -c "mongod --quiet > /dev/null 2>&1"
+    networks:
+      - um-internal
 
   backend:
     build: ./backend
@@ -21,11 +22,43 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+      - ./backend/tmp:/tmp
     depends_on:
       - mongo
     environment:
       MONGO_URI: "mongodb://mongo:27017/um-db"
+      NA_IPS: "172.20.0.2,172.21.0.2"
+      UDP_PORT: 5000
+    networks:
+      default:
+      um-internal:
+      netA:
+        ipv4_address: 172.20.0.2
+      netB:
+        ipv4_address: 172.21.0.2
 
+
+
+networks:
+  default:
+    driver: bridge
+
+  um-internal:
+    driver: bridge
+
+  netA:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+  netB:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
 
 volumes:
   mongo_data:

@@ -1,0 +1,20 @@
+services:
+  na:
+    image: python:3.12-alpine
+    container_name: ${NA_NAME:-na}
+    environment:
+      UDP_PORT: 5000
+    volumes:
+      - ./na_listener:/app  # where your na_listener.py is
+    command: python /app/na_listener.py
+    networks:
+      na_net:
+        ipv4_address: ${NA_IP}  # fixed IP for UM to send to
+
+networks:
+  na_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${NA_SUBNET:-172.20.0.0/16}
+          gateway: ${NA_GATEWAY:-172.20.0.1}

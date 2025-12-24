@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from service_engine.db.PackageServiceDB import PackageServiceDB as db
-from service_engine import ServiceFactory as sf
+from package_engine.db.PackageServiceDB import PackageServiceDB as db
+from package_engine import ServiceFactory as sf
 
 app = FastAPI()
 
