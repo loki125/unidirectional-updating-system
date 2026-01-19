@@ -1,23 +1,45 @@
 from fastapi import FastAPI
-from package_engine.db.PackageServiceDB import PackageServiceDB as db
+import os
+import logging
+from flute_broadcast.FluteBroadcast import FluteBroadcast as fb
 from package_engine import ServiceFactory as sf
+from utilitys.PackageMetadata import PackageMetadata
 
 app = FastAPI()
+service_factory = sf.SearchFactory()
 
-db_instance = db(uri="mongodb://mongo:27017", db_name="um-db")
-service_factory = sf.SearchFactory(db_instance)
+BROADCASTER_HOST = os.getenv("BROADCASTER_HOST", "broadcaster")
+
+BROADCASTER_PORT = os.getenv("BROADCASTER_PORT")
+if BROADCASTER_PORT is None:
+    raise EnvironmentError("no port for broadcaster given")
+
+BROADCASTER_VOLUME = os.getenv("BROADCASTER_VOLUME_PATH")
+if BROADCASTER_VOLUME is None:
+    raise EnvironmentError("no volume path for broadcaster given")
+
+flute_broadcaster =  fb(uri=f"http://{BROADCASTER_HOST}:{BROADCASTER_PORT}")
+
 
 @app.on_event("startup")
 async def startup_event():
     print(">>> STARTUP RAN!")
-    #await db_instance.reset_packages_collection()
-    #await service_factory.global_refresh_metadata()
+    logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 @app.on_event("startup")
 async def startup_test_event():
-    print("printing all packages")
-    await db_instance.print_packages(30)
-    print("DONE")
+    print("tying to send update for libc6, 2.42-7, amd64")
+    engine = service_factory.get_engine("Debian")
+    metadata : PackageMetadata
+    async with engine:
+        file_name = await engine.get_package_file("libc6", "2.42-7", "amd64")
+        metadata = await engine.get_package_metadata(file_name)
 
-    file_path = await service_factory.get_engine("Debian").request_download_file("python3-lib389_3.1.2+dfsg1-1_Debian")
-    print(file_path)
+    async with flute_broadcaster:
+        await flute_broadcaster.send_update(file_name, metadata, service_factory, BROADCASTER_VOLUME)
+        pass
+        
+    print("FINISHED SENDING UPDATE")

@@ -3,13 +3,11 @@ from .PackageService import *
 
 class SearchFactory:
 
-    def __init__(self, db_instance: db):
+    def __init__(self):
         self._engine_classes = {
             DebianPackageService.__name__: DebianPackageService,
             # "pip": PipSearchEngine
         }
-
-        self._global_db_instance = db_instance # db(uri="mongodb://mongo:27017", db_name="um-db") need to add db configurations
 
     def get_engine(self, pack_type: str):
         """
@@ -24,7 +22,7 @@ class SearchFactory:
         if not engine_cls:
             return None
 
-        return engine_cls(self._global_db_instance)
+        return engine_cls()
 
     async def global_refresh_metadata(self):
         """
@@ -33,8 +31,9 @@ class SearchFactory:
         engine = None
         try:
             for engine_class in self._engine_classes.values():
-                engine = engine_class(self._global_db_instance)
+                engine = engine_class()
                 await engine.refresh_metadata()
+
         except Exception as e:
             logging.error(f"Tried refreshing metadata for engine {engine}\n{e}")
 

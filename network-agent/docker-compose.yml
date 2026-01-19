@@ -1,20 +1,59 @@
 services:
-  na:
+  distributor:
     image: python:3.12-alpine
     container_name: ${NA_NAME:-na}
-    environment:
-      UDP_PORT: 5000
+    ports:
+        - "8000:8000"
     volumes:
-      - ./na_listener:/app  # where your na_listener.py is
+      - .distributor/app:/app
     command: python /app/na_listener.py
+
+    flute-receiver:
+      build: ./flute-eceiver
+      image: na-fluteReceiver:latest
+      container_name: na-fluteReceiver
+      restart: "no"
+      cap_add:
+        - NET_ADMIN
+      ports:
+        - "8080:8080"
+      volume:
+        - updates_volume:/data/updates_volume
+        - flute-receiver/service:/service/service
+      environment:
+        PATH: /data/updates_volume
+        DISTRIBUTER_PORT: 8000
+        UDP_PORT: 400486
+      networks:
+        net_agent:
+          ipv4_address: 10.10.2.10
+
+  router:
+    image: alpine:latest
+    container_name: router_node
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv4.ip_forward=1 # Enable IP forwarding kernel feature
+    command: sh -c "echo 'Router active...'; tail -f /dev/null"
     networks:
-      na_net:
-        ipv4_address: ${NA_IP}  # fixed IP for UM to send to
+      um-internal:
+        ipv4_address: 10.10.1.254
+      net_agent:
+        ipv4_address: 10.10.2.254
 
 networks:
-  na_net:
+  net_agent:
+    name: agents_network
     driver: bridge
     ipam:
       config:
-        - subnet: ${NA_SUBNET:-172.20.0.0/16}
-          gateway: ${NA_GATEWAY:-172.20.0.1}
+        - subnet: 10.10.2.0/24
+  
+  # Connect to the network created by the other file
+  um-internal:
+    external: true
+    name: network_um
+
+volume:
+  updates_volume:
