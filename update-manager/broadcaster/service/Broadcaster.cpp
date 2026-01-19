@@ -21,7 +21,7 @@ void set_json_response(httplib::Response& res, int status, const json& body) {
 
 Broadcaster::Broadcaster()
 {
-    spdlog::set_level(spdlog::level::trace);
+    spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
     
     // extract targets from env, set defualt_args for each and insert it to targets
@@ -41,6 +41,9 @@ Broadcaster::Broadcaster()
 Broadcaster::~Broadcaster()
 {
     this->svr.stop();
+    io.stop();
+    if (send_thread.joinable())
+        send_thread.join();
 }
 
 const char* Broadcaster::set_env_var(const std::string& name){
@@ -72,7 +75,6 @@ void Broadcaster::run(){
                 set_json_response(res, 400, {{"error", "file_paths must be an array"}});
                 return;
             }
-            spdlog::info("1");
             std::vector<std::string> file_paths = file_paths_opt->get<std::vector<std::string>>();
             json result_details;
 
@@ -89,7 +91,6 @@ void Broadcaster::run(){
                 return;
             }
 
-            spdlog::info("7");
             // Determine HTTP Status Code based on results
             bool has_errors = !result_details["failed_ips"].empty() || !result_details["file_errors"].empty();
             bool has_success = !result_details["successful_ips"].empty();
@@ -101,7 +102,6 @@ void Broadcaster::run(){
             } else {
                 res.status = 200; // All good
             }
-            spdlog::info("8");
             res.set_content(result_details.dump(), "application/json");
 
         } catch (const json::parse_error& e) {
@@ -160,6 +160,12 @@ void Broadcaster::run(){
             set_json_response(res, 500, {{"status", "error"}, {"message", e.what()}});
         }
     });
+
+    this->send_thread = std::thread([this] {
+        spdlog::info("FLUTE io_context thread started");
+        this->io.run();
+    });
+
 
     spdlog::info("Server listening on port 8080...\n");
     this->svr.listen("0.0.0.0", 8080); 
@@ -235,8 +241,11 @@ std::unique_ptr<LibFlute::Transmitter> Broadcaster::set_transmiter(const ft_argu
                     if (f.transmitted_count < target_args.retransmit_count) {
                         transmitter_ptr->send(f.file);
                     }
-                    return; 
                 }
+            }
+            if (--targ->pending_files == 0) {
+                spdlog::info("All files sent to {}", target_args.mcast_target);
+                targ->files.clear();
             }
         } catch (...) {
             spdlog::error("Error in completion callback for {}", target_args.mcast_target);
@@ -304,6 +313,7 @@ json Broadcaster::send_object(const std::vector<std::string>& destination_ips, c
     response["file_errors"] = json::array();
 
     try {
+        
         for (const auto& ip : destination_ips) {
 
             // Check Target Existence
@@ -329,11 +339,9 @@ json Broadcaster::send_object(const std::vector<std::string>& destination_ips, c
 
             // Process Files for this Target
             bool all_files_ok = true;
-            target.files.clear(); // Ensure clean slate
 
             for (const auto& path : file_paths) {
                 std::string error_msg;
-                spdlog::info("5");
                 if (!this->create_file_entry(target, path, error_msg)) {
                     all_files_ok = false;
                     spdlog::error("Failed to add file {} for IP {}: {}", path, ip, error_msg);
@@ -347,10 +355,10 @@ json Broadcaster::send_object(const std::vector<std::string>& destination_ips, c
                 }
             }
 
+
             // Only attempt send if files were added successfully
             if (!target.files.empty()) {
                 try {
-                    spdlog::info("6");
                     this->send_to_target(ip);
                     response["successful_ips"].push_back(ip);
                 } catch (const std::exception& e) {
@@ -359,7 +367,6 @@ json Broadcaster::send_object(const std::vector<std::string>& destination_ips, c
                         {"reason", std::string("Transmission failed: ") + e.what()}
                     });
                 }
-                target.files.clear();
             } else throw std::runtime_error("func logic failed");// Logic error.
             
         }
@@ -387,7 +394,6 @@ json Broadcaster::send_object(const std::string& command, const std::vector<std:
 
 json Broadcaster::send_command_all(const std::vector<std::string>& file_paths){
     // Collect all current keys from map
-    spdlog::info("3");
     std::vector<std::string> all_ips;
     for(const auto& pair : this->targets) {
         all_ips.push_back(pair.first);
@@ -399,6 +405,8 @@ json Broadcaster::send_command_all(const std::vector<std::string>& file_paths){
 void Broadcaster::send_to_target(const std::string& destination_ip){
 
     Target* targ = &this->targets.at(destination_ip);
+    targ->pending_files = targ->files.size();
+
     LibFlute::Transmitter* transmitter = targ->transmitter.get();
 
     // Queue all the files
@@ -428,12 +436,7 @@ void Broadcaster::send_to_target(const std::string& destination_ip){
             throw std::runtime_error("sending to destination: " + destination_ip + "failed");
         
     }
-
-    // Start the io_context
-    io.restart();
-    io.run();
-}he targets
-um-broadcaster  | [2026-01-18 08:13:41.859] [info] Server listening on p
+}
 
 bool Broadcaster::create_file_entry(Target& targ, const std::string& file_path, std::string& out_error) noexcept {
     

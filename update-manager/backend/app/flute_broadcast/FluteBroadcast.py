@@ -20,7 +20,13 @@ class FluteBroadcast:
         self.version = "1.0"
 
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        timeout = aiohttp.ClientTimeout(
+            total=None,      
+            connect=30,
+            sock_connect=30,
+            sock_read=120
+        )
+        self.session = aiohttp.ClientSession(timeout=timeout)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -248,6 +254,18 @@ class FluteBroadcast:
         # This inner function contains all the blocking I/O logic
         def _build_tar():
             with tarfile.open(new_file_path, "w") as tar:
+
+                # Add the manifest JSON directly from memory
+                if manifest.packages:
+                    # Convert manifest to bytes
+                    manifest_data = manifest.to_json().encode("utf-8")
+                    
+                    # Prepare TarInfo and write to archive
+                    tarinfo = tarfile.TarInfo(name="manifest.json")
+                    tarinfo.size = len(manifest_data)
+                    # Use BytesIO to stream the memory-stored JSON into the tar file
+                    tar.addfile(tarinfo, io.BytesIO(manifest_data))
+
                 # Add all files
                 for path in file_paths:
                     if not os.path.isfile(path):
@@ -255,19 +273,7 @@ class FluteBroadcast:
                     # arcname ensures we don't include the full local folder structure in the tar
                     tar.add(path, arcname=os.path.basename(path))
 
-                # Add the manifest JSON directly from memory
-                if manifest.packages:
-                    main_pkg_hash = manifest.packages[0].SHA256
-                    manifest_filename = f"{manifest.update_id}_{main_pkg_hash}.json"
-                    
-                    # Convert manifest to bytes
-                    manifest_data = manifest.to_json().encode("utf-8")
-                    
-                    # Prepare TarInfo and write to archive
-                    tarinfo = tarfile.TarInfo(name=manifest_filename)
-                    tarinfo.size = len(manifest_data)
-                    # Use BytesIO to stream the memory-stored JSON into the tar file
-                    tar.addfile(tarinfo, io.BytesIO(manifest_data))
+
 
         # Offload the blocking function to a worker thread
         await asyncio.to_thread(_build_tar)

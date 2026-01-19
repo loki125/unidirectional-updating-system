@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <utility>
 #include <optional>
+#include <thread>
+#include <mutex>
 #include <string>
 
 using json = nlohmann::json;
@@ -46,6 +48,8 @@ struct Target {
     ft_arguments args;
     std::unique_ptr<LibFlute::Transmitter> transmitter;
     std::list<fileEntry> files;
+
+    std::atomic<size_t> pending_files{0};
 };
 
 class Broadcaster {
@@ -85,6 +89,8 @@ class Broadcaster {
     boost::asio::io_context io;
 
     std::string update_path;
+
+    std::thread send_thread;
 
 public:
 

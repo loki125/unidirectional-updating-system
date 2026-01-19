@@ -22,8 +22,10 @@ services:
         - flute-receiver/service:/service/service
       environment:
         PATH: /data/updates_volume
-        DISTRIBUTER_PORT: 8000
-        UDP_PORT: 400486
+        DISTRIBUTOR_URL: http://distributor:8000
+        UPDATE_FILE_REQUEST: /update_file
+        FLUTE_PORT: 400486
+        IP: 10.10.2.10
       networks:
         net_agent:
           ipv4_address: 10.10.2.10
