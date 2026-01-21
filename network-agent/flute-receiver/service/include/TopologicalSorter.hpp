@@ -1,5 +1,6 @@
 
 #pragma once
+
 #include <cstdint>
 #include <nlohmann/json.hpp>
 
@@ -13,6 +14,10 @@ json topo_sort(const std::string& file_name);
 
 json extract_manifest_JSON(const std::string& tarPath);
 
-Graph graph_builder(const json& manifest_json);
+PackageGraph graph_builder(const json& manifest_json);
+
+std::vector<int> topo_sort_algo(const Graph& graph);
+
+json phrase_sorted_vector(const PackageGraph& pgraph, const std::vector<int>& sorted_vector);
 
 }

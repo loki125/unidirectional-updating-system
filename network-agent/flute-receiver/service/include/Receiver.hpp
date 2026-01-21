@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <Receiver.h>
 #include <httplib.h>
+#include <memory>
+#include <string>
 #include <nlohmann/json.hpp> 
 
 #include "TopologicalSorter.hpp"
@@ -15,7 +17,6 @@ struct ft_arguments {
   bool enable_ipsec = false;
   const char *aes_key = {};
   unsigned short mcast_port;
-  char **files;
   uint64_t tsi = 16;
   std::string output_path;
 };
@@ -23,23 +24,23 @@ struct ft_arguments {
 
 class FluteReceiver{
 
-    void upload_update(const std::string& file_name, const std::string &sort_json); // post call to http server
+    void upload_update(const std::string& file_name, const json &sort_json); // post call to http server
 
     void set_receiver();
 
     boost::asio::io_context io;
 
-    std::string distributor_url;
+    std::string distributor_path;
 
     ft_arguments args;
-    
-    httplib::Client cli
 
-    LibFlute::Receiver receiver;
+    std::unique_ptr<httplib::Client> cli;
+
+    std::unique_ptr<LibFlute::Receiver> receiver;
 public:
     FluteReceiver();
 
     ~FluteReceiver();
 
     void run();
-}
+};
