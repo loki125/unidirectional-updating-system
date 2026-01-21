@@ -1,16 +1,27 @@
 x-name: daedalus_um
 
 services:
-  mongo:
-    image: mongo:6.0
-    command: mongod --quiet --logpath /data/db/mongod.log --logappend
-    container_name: um-mongo
-    restart: always
+  broadcaster:
+    build: ./broadcaster
+    image: um-broadcaster:latest
+    container_name: um-broadcaster
+    restart: "no"
+    cap_add:
+      - NET_ADMIN
     ports:
-      - "27017:27017"
+      - "8080:8080"
     volumes:
-      - mongo_data:/data/db
-    #command: bash -c "mongod --quiet > /dev/null 2>&1"
+      - ./broadcaster/service:/service/service
+      - broadcast_volume:/data/broadcast_volume
+      - ./broadcaster/na_ips_list.txt:/data/na_ips_list.txt
+    environment:
+      UDP_PORT: "40085"
+      IPS_PATH: "/data/na_ips_list.txt"
+      UPDATE_FILE_PATH : "/data/broadcast_volume"
+    networks:
+      default:
+      um-internal:
+        ipv4_address: 10.10.1.10
 
   backend:
     build: ./backend
@@ -21,11 +32,26 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+      - broadcast_volume:/data/broadcast_volume
     depends_on:
-      - mongo
+      - broadcaster
     environment:
-      MONGO_URI: "mongodb://mongo:27017/um-db"
+      BROADCASTER_PORT: "8080"
+      BROADCASTER_VOLUME_PATH: "/data/broadcast_volume"
+    networks:
+      - um-internal
+        
 
+networks:
+  default:
+    driver: bridge
+
+  um-internal:
+    name: network_um
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.1.0/24
 
 volumes:
-  mongo_data:
+  broadcast_volume:

@@ -1,0 +1,54 @@
+services:
+  flute-receiver:
+    build: ./flute-receiver
+    image: na-flute-receiver:latest
+    container_name: na-fluteReceiver
+    restart: "no"
+    ports:
+      - "40085:40085/udp"
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - updates_volume:/data/updates_volume
+      - ./flute-receiver/service:/service/service
+    environment:
+      OUTPUT_PATH: /data/updates_volume
+      DISTRIBUTOR_URL: http://distributor:11080
+      UPDATE_FILE_REQUEST: /update_file
+      FLUTE_PORT: "40085"
+      IP: 238.1.1.95
+    networks:
+      net_agent:
+        ipv4_address: 10.10.2.10
+
+  mcast-forwarder:
+    build: ./mcast-forwarder
+    image: mcast-forwarder:latest
+    container_name: mcast-forwarder
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    sysctls:
+      - net.ipv4.ip_forward=1
+    networks:
+      um-internal:
+        ipv4_address: 10.10.1.254
+      net_agent:
+        ipv4_address: 10.10.2.254
+
+
+networks:
+  net_agent:
+    name: agents_network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.2.0/24
+  
+  # Connect to the network created by the other file
+  um-internal:
+    external: true
+    name: network_um
+
+volumes:
+  updates_volume:
