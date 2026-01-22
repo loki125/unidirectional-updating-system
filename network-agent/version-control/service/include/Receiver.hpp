@@ -7,8 +7,6 @@
 #include <string>
 #include <nlohmann/json.hpp> 
 
-#include "TopologicalSorter.hpp"
-
 using json = nlohmann::json;
 
 struct ft_arguments {
@@ -33,8 +31,6 @@ class FluteReceiver{
     std::string distributor_path;
 
     ft_arguments args;
-
-    std::unique_ptr<httplib::Client> cli;
 
     std::unique_ptr<LibFlute::Receiver> receiver;
 public:

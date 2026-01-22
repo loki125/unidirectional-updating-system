@@ -307,7 +307,6 @@ bool Broadcaster::remove_destination(const std::string& destination_ip){
 json Broadcaster::send_object(const std::vector<std::string>& destination_ips, const std::vector<std::string>& file_paths) {
     
     json response;
-    spdlog::info("4");
     response["successful_ips"] = json::array();
     response["failed_ips"] = json::array();
     response["file_errors"] = json::array();
@@ -379,7 +378,6 @@ json Broadcaster::send_object(const std::vector<std::string>& destination_ips, c
 }
 
 json Broadcaster::send_object(const std::string& command, const std::vector<std::string>& file_paths) {
-    spdlog::info("2");
     if(command == "all")
         return this->send_command_all(file_paths);
 
@@ -454,18 +452,10 @@ bool Broadcaster::create_file_entry(Target& targ, const std::string& file_path, 
             return false;
         }
 
-        // 3. STORE STRINGS FIRST
-        // We emplace the entry into the list first. We pass 'nullptr' for the FileDescription 
-        // initially, but we move the path strings into their permanent home in the list.
         targ.files.emplace_back(nullptr, full_path_obj.string(), file_path);
 
-        // 4. GET STABLE REFERENCE
-        // Now we get a reference to the entry we just created. 
-        // Since it is a std::list, this address will not change.
         auto& entry = targ.files.back();
 
-        // 5. Create FileDescription using the STABLE strings
-        // We use entry.kept_path.c_str() which points to the heap memory inside the list node
         auto fd = new LibFlute::Transmitter::FileDescription(
             entry.kept_path.c_str(), 
             entry.kept_name.c_str()
@@ -493,8 +483,7 @@ bool Broadcaster::create_file_entry(Target& targ, const std::string& file_path, 
              fd->set_etag(""); 
         }
 
-        // 6. Assign the FileDescription to the entry
-        // The unique_ptr/shared_ptr will take ownership here
+        // The unique_ptr/shared_ptr takes ownership here
         entry.file.reset(fd);
 
         return true;

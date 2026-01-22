@@ -1,15 +1,30 @@
 #pragma once
 
+#include <cstdint>
+#include <vector>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
-#include "Graph.hpp"
+
+class Graph {
+public:
+    explicit Graph(std::size_t node_count);
+
+    void add_edge(std::size_t from, std::size_t to);
+
+    const std::vector<std::size_t>& neighbors(std::size_t node) const;
+
+    std::size_t size() const noexcept;
+
+private:
+    std::vector<std::vector<std::size_t>> adj_;
+};
 
 // The Unified Struct
 struct Package {
     std::string name;
     std::string version;
+    std::string package_path;
     std::vector<Package> dependencies; // Recursive definition
 
     bool operator==(const Package& other) const {
@@ -32,7 +47,7 @@ public:
 
     const Graph& graph() const;
 
-    const Package& info_of(int id) const; 
+    const Package& get_package(int id) const; 
 
     void add_depend(const Package& pkg);
 

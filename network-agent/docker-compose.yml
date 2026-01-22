@@ -1,8 +1,25 @@
 services:
-  flute-receiver:
-    build: ./flute-receiver
-    image: na-flute-receiver:latest
-    container_name: na-fluteReceiver
+  distributor:
+    build: ./distributor
+    image: na-distributor:latest
+    container_name: na_distributor
+    restart: "no"
+    ports:
+      - "11080:11080"
+    volumes:
+      - store_volume:/data/store_volume:ro
+      - ./distributor/service:/service/service
+    environment:
+      STORE_PATH: /data/store_volume
+    networks:
+      net_agent:
+        ipv4_address:
+          10.10.2.10
+
+  version-control:
+    build: ./version-control
+    image: na-version-control:latest
+    container_name: na-versionControl
     restart: "no"
     ports:
       - "40085:40085/udp"
@@ -10,9 +27,10 @@ services:
       - NET_ADMIN
     volumes:
       - updates_volume:/data/updates_volume
-      - ./flute-receiver/service:/service/service
+      - ./version-control/service:/service/service
     environment:
       OUTPUT_PATH: /data/updates_volume
+      STORE_PATH: /data/store_volume
       DISTRIBUTOR_URL: http://distributor:11080
       UPDATE_FILE_REQUEST: /update_file
       FLUTE_PORT: "40085"
@@ -52,3 +70,5 @@ networks:
 
 volumes:
   updates_volume:
+  store_volume:
+  
