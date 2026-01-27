@@ -34,9 +34,6 @@ RUN mkdir -p deps/httplib \
 
 COPY service/ .
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
 # Build everything
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build
@@ -44,4 +41,4 @@ RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 RUN cp build/broadcaster /usr/local/bin/
 
 # Set the command to run the executable when the container starts.
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/broadcaster"]

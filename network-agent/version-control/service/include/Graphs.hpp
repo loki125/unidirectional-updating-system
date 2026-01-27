@@ -4,13 +4,17 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <nlohmann/json.hpp>
 
+using json = nlohmann::json;
 
 class Graph {
 public:
     explicit Graph(std::size_t node_count);
 
     void add_edge(std::size_t from, std::size_t to);
+
+    void rm_edge(std::size_t from, std::size_t to);
 
     const std::vector<std::size_t>& neighbors(std::size_t node) const;
 
@@ -24,8 +28,16 @@ private:
 struct Package {
     std::string name;
     std::string version;
-    std::string package_path;
+    json package_json;
     std::vector<Package> dependencies; // Recursive definition
+
+    Package(const json& pkg_json) {
+        package_json = pkg_json;
+
+        name = package_json.at("Package").get<std::string>();
+        version = package_json.at("Version").get<std::string>();
+    }
+    Package() = default;
 
     bool operator==(const Package& other) const {
         return name == other.name && version == other.version;
@@ -45,7 +57,7 @@ public:
     explicit PackageGraph(const std::vector<Package>& packages);
     explicit PackageGraph(int size) : graph_(size) {}
 
-    const Graph& graph() const;
+    Graph& graph() const;
 
     const Package& get_package(int id) const; 
 

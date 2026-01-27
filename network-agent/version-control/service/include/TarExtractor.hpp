@@ -2,16 +2,20 @@
 
 #include <filesystem>
 #include <vector>
+#include <archive.h>
+#include <archive_entry.h>
 #include <nlohmann/json.hpp> 
 
-namespace TarExtractor{
-    
-    void extract(const std::filesystem::path& tar_file);
+namespace fs = std::filesystem;
+using json = nlohmann::json;
+
+class TarExtractor{
+
+    json manifest_;
+
+public:
+    TarExtractor(const std::filesystem::path& tar_file);
 
     json get_manifest();
 
-    json get_main_package();
-
-    json get_package();
-
-}
+};

@@ -12,11 +12,24 @@ void Graph::add_edge(std::size_t from, std::size_t to) {
     adj_[from].push_back(to);
 }
 
+void Graph::rm_edge(std::size_t from, std::size_t to) {
+    if (from >= adj_.size() || to >= adj_.size()) {
+        throw std::out_of_range("Graph::rm_edge: invalid node index");
+    }
+    auto& neighbors = adj_[from];
+    neighbors.erase(std::remove(neighbors.begin(), neighbors.end(), to), neighbors.end());
+}
+
 const std::vector<std::size_t>& Graph::neighbors(std::size_t node) const {
     if (node >= adj_.size()) {
         throw std::out_of_range("Graph::neighbors: invalid node index");
     }
     return adj_[node];
+}
+
+Graph& PackageGraph::graph() const
+{
+    return this->graph_;
 }
 
 std::size_t Graph::size() const noexcept {
@@ -29,11 +42,6 @@ PackageGraph::PackageGraph(const std::vector<Package>& packages)
     for(const Package& pkg : packages)
         this->add_depend(pkg);
     
-}
-
-const Graph& PackageGraph::graph() const
-{
-    return this->graph_;
 }
 
 const Package &PackageGraph::get_package(int id) const
@@ -62,4 +70,3 @@ int PackageGraph::add_pkg(const Package& pkg){
     }
     return pkg_to_id[pkg];
 }
-

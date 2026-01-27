@@ -5,14 +5,7 @@
 #include <filesystem>   
 #include <spdlog/spdlog.h> 
 
-
-const char* set_env_var(const std::string& name){
-    const char* var = std::getenv(name.data());
-    if (!var) {
-        throw std::runtime_error("Environment variable " + name + " is not set.");
-    }
-    return var;
-}
+#include "utils.hpp"
 
 void FluteReceiver::set_receiver()
 {
@@ -32,25 +25,36 @@ void FluteReceiver::set_receiver()
 
     this->receiver->register_completion_callback(
       [this, output_path = this->args.output_path](std::shared_ptr<LibFlute::File> file) { //NOLINT
-        std::string out_file = file->meta().content_location;
+        std::filesystem::path out_file, file_name = std::filesystem::path(file->meta().content_location).filename();
         if (!output_path.empty()) 
-            out_file = (std::filesystem::path(output_path) / std::filesystem::path(out_file).filename()).string();
+            out_file = std::filesystem::path(output_path) / file_name;
         
-        spdlog::info("{} (TOI {}) has been received", out_file, file->meta().toi);
-        FILE *fd = fopen(out_file.c_str(), "wb");
-        fwrite(file->buffer(), 1, file->length(), fd);
-        fclose(fd);
+        spdlog::info("{} (TOI {}) has been received", out_file.string(), file->meta().toi);
+
+        try{
+            FILE *fd = fopen(out_file.c_str(), "wb");
+            fwrite(file->buffer(), 1, file->length(), fd);
+            fclose(fd);
+            
+            std::filesystem::rename(
+                out_file, 
+                std::filesystem::path(output_path) / READY_PATH / file_name
+            );
+            spdlog::info("File {} moved to ready path", file_name.string());
+        } catch (const std::exception &e){
+            spdlog::error("Error while writing file {}: {}", file_name.string(), e.what());
+        }
+        
       });
 }
 
 FluteReceiver::FluteReceiver()
 {
-
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
 
     ft_arguments& args = this->args;
-    args.flute_interface = "0.0.0.0"; // Lioutput_pathsten on all interfaces
+    args.flute_interface = "0.0.0.0"; // Listen on all interfaces
 
     args.mcast_port = std::stoi(set_env_var("FLUTE_PORT"));
     spdlog::info("FLUTE_PORT successfully set to: {}", args.mcast_port);

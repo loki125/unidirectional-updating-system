@@ -12,7 +12,6 @@ add_executable(FluteReceiver main.cpp
     src/Receiver.cpp 
     src/Algorithms.cpp 
     src/Graphs.cpp
-    src/RecipeBuilder.cpp
     src/Store.cpp
     src/TarExtractor.cpp
 )
@@ -20,7 +19,7 @@ add_executable(FluteReceiver main.cpp
 # Include httplib paths
 target_include_directories(FluteReceiver PRIVATE
     ${CMAKE_SOURCE_DIR}/deps/httplib
-    ${CMAKE_CURRENT_SOURCE_DIR}service/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(FluteReceiver PRIVATE 

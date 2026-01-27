@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import List, Optional
 
 class PackageMetadata(BaseModel):
@@ -7,7 +7,7 @@ class PackageMetadata(BaseModel):
     Version: str
     Type: str
     Architecture: str
-    Store_Path: str = "/opt/store/"
+    Store_Path: str | None = None
     Dependencies: List[List[str]] | List
     SHA256: str
     Installed_Size: int = Field(alias="Installed-Size")
@@ -27,9 +27,11 @@ class PackageMetadata(BaseModel):
     def build_id(package: str, version: str, arch: str) -> str:
         return f"{package}_{version}_{arch}"
 
-    def get_final_store_path(self) -> str:
+    @model_validator(mode='after') 
+    def compute_store_path(cls, model) -> str:
         """Generates the full store path including the hash"""
-        return f"{self.Store_Path}{self.SHA256}-{self.Package}-{self.Version}"
+        model.Store_Path = f"{model.SHA256}-{model.Package}-{model.Version}"
+        return model
     
         
 

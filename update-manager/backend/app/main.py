@@ -29,8 +29,8 @@ async def startup_event():
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-@app.on_event("startup")
-async def startup_test_event():
+@app.post("/test")
+async def test_event():
     print("tying to send update for libc6, 2.42-7, amd64")
     engine = service_factory.get_engine("Debian")
     metadata : PackageMetadata

@@ -1,64 +1,75 @@
 #include "Store.hpp"
 #include <spdlog/spdlog.h> 
 
-//helper
-const char* set_env_var(const std::string& name){
-    const char* var = std::getenv(name.data());
-    if (!var) {
-        throw std::runtime_error("Environment variable " + name + " is not set.");
-    }
-    return var;
-}
-
-
+#include "utils.hpp"
 
 void Store::run()
 {
+    std::filesystem::path processing_dir = this->store_vol / PROCESSING_DIR;
+    
     while (true) {
-        for (auto& entry : std::filesystem::directory_iterator(ready_dir)) {
-            if (entry.is_regular_file()) {
-                std::filesystem::path processing = this->stor_vol / "processing" / entry.path().filename();
-                try {
-                    // atomic claim
-                    std::filesystem::rename(entry.path(), processing);
-                    spdlog::info("captured new file {}, beging processing", processing);
+        for (auto& entry : std::filesystem::directory_iterator(this->receiver_vol)) {
+            if (!entry.is_regular_file()) 
+                throw std::runtime_error("Non-regular file found in receiver directory, expected only regular files!");
 
-                    TarExtractor::extract(processing);
-                    json manifest = TarExtractor::get_manifest();
+            std::filesystem::path processing = processing_dir / entry.path().filename();
+            try {
+                // atomic claim
+                std::filesystem::copy_file(entry.path(), processing, std::filesystem::copy_options::overwrite_existing);
+                std::filesystem::remove(entry.path());
 
-                    std::vector<std::string> rts_vector = RTS::sort(manifest);
+                spdlog::info("[STORE] captured new file {}, beging processing", processing.string());
 
-                    for(const auto& f_path : rts_vector){
+                TarExtractor extractor(processing);
+                json manifest = extractor.get_manifest();
+                spdlog::info("[STORE] manifest.json extracted successfully");
 
-                        if (!this->hashpath_exists(f_path))
-                            this->create_hashpath(f_path)
-                    }
+                std::vector<json> rts_vector = RTS::sort(manifest);
+
+                for(const auto& package : rts_vector){
+                    std::string f_path = package.at("Store_Path");
+                    std::filesystem::path f_path_fs = std::filesystem::path(f_path);
+
+                    if (std::filesystem::exists(f_path_fs))
+                        continue;
+
+                    std::filesystem::create_directories(f_path_fs.parent_path());
+                    std::filesystem::rename(
+                        this->store_vol / f_path_fs / package["File_Name"].get<std::string>(), 
+                        f_path_fs
+                    );
+
+                    SLF::build_slf(package);
+                    this->update_distributor(package);
                     
-                    json main_package = TarExtractor::get_main_package();
-                    this->update_distributor(main_package);
-
-                    // reset volume
-                    std::filesystem::remove_all(dir);
-                    std::filesystem::create_directories(dir);
-
-                } catch (const std::filesystem::filesystem_error& e) {
-                    // file might have been claimed already
                 }
+
+                // reset volume
+                std::filesystem::remove_all(processing_dir);
+                std::filesystem::create_directories(processing_dir);
+
+            } catch (const std::filesystem::filesystem_error& e) {
+                // file might have been claimed already
+                spdlog::warn("[STORE] Filesystem error while processing {}: {}", entry.path().string(), e.what());
             }
+        
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(200)); // adjust as needed
+        std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
     }
 }
 
 Store::Store()
 {
-    this->store_vol = set_env_var("STORE_VOLUME");
-    this->receiver_vol = set_env_var("OUTPUT_PATH");
+    this->store_vol = set_env_var("STORE_PATH");
+    std::filesystem::path output_path = set_env_var("OUTPUT_PATH");
+
+    this->receiver_vol = output_path / READY_PATH;
 
     std::string url = set_env_var("DISTRIBUTOR_URL");
     std::string method = set_env_var("UPDATE_FILE_REQUEST");
-    spdlog::info("DISTRIBUTOR_URL, UPDATE_FILE_REQUEST successfully set to: {}, {}", url, method);
+
+    spdlog::info("[STORE] DISTRIBUTOR_URL, UPDATE_FILE_REQUEST successfully set to: {}, {}", url, method);
 
     this->distributor_path = method;
     try{
@@ -67,16 +78,10 @@ Store::Store()
         this->cli->set_connection_timeout(5);
         this->cli->set_read_timeout(5);
     } catch(const std::exception &e){
-        spdlog::error("Failed to create HTTP client: {}", e.what());
+
+        spdlog::error("[STORE] Failed to create HTTP client: {}", e.what());
         throw;
     }
-}
-
-Store::~Store() {
-    this->cli.stop();
-
-    if (fd >= 0)
-        close(fd);
 }
 
 void Store::update_distributor(const json& package_json){   
@@ -85,24 +90,15 @@ void Store::update_distributor(const json& package_json){
 
         if (res) {
             if (res->status == 200 || res->status == 201) {
-                spdlog::info("Successfully uploaded update to distributor: {}", this->distributor_path);
+                spdlog::info("[STORE] Successfully uploaded update to distributor: {}", this->distributor_path);
             } else {
-                spdlog::error("Distributor returned error status: {}", res->status);
+                spdlog::error("[STORE] Distributor returned error status: {}", res->status);
             }
         } else {
             auto err = res.error();
-            spdlog::error("Failed to connect to distributor ({}): {}", this->distributor_path, httplib::to_string(err));
+            spdlog::error("[STORE] Failed to connect to distributor ({}): {}", this->distributor_path, httplib::to_string(err));
         }
     } catch (const std::exception& e) {
-        spdlog::error("Exception occurred during upload_update: {}", e.what());
+        spdlog::error("[STORE] Exception occurred during upload_update: {}", e.what());
     }
-}
-
-bool Store::hashpath_exists(const std::string &path)
-{
-    return false;
-}
-
-void Store::create_hashpath(const std::string &path)
-{
 }

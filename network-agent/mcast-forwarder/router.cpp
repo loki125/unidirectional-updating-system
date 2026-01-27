@@ -36,14 +36,10 @@ struct in_addr get_interface_ip(const char* iface_name) {
 int main() {
     std::cout << "Starting Multicast Router..." << std::endl;
 
-    // 1. Get Interface IPs
+    // Get Interface IPs
     struct in_addr ip_in = get_interface_ip(IFACE_IN_NAME);
     struct in_addr ip_out = get_interface_ip(IFACE_OUT_NAME);
 
-    std::cout << "Input Interface (" << IFACE_IN_NAME << "): " << inet_ntoa(ip_in) << std::endl;
-    std::cout << "Output Interface (" << IFACE_OUT_NAME << "): " << inet_ntoa(ip_out) << std::endl;
-
-    // 2. Setup Receiver Socket (Input)
     int sock_recv = socket(AF_INET, SOCK_DGRAM, 0);
     int reuse = 1;
     if (setsockopt(sock_recv, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse)) < 0) {
@@ -72,7 +68,7 @@ int main() {
         return 1;
     }
 
-    // 3. Setup Sender Socket (Output)
+    // Setup Sender Socket (Output)
     int sock_send = socket(AF_INET, SOCK_DGRAM, 0);
     
     // Set TTL
@@ -94,8 +90,9 @@ int main() {
 
     std::cout << "Router Online. Forwarding " << MCAST_GRP << ":" << MCAST_PORT << std::endl;
 
-    // 4. Forwarding Loop
+    // Forwarding Loop
     std::vector<char> buffer(BUFFER_SIZE);
+
     while (true) {
         struct sockaddr_in src_addr;
         socklen_t addr_len = sizeof(src_addr);
@@ -105,9 +102,6 @@ int main() {
         if (len > 0) {
             sendto(sock_send, buffer.data(), len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
         }
-        std::cout << "Forwarded " << len << " bytes from " 
-                  << inet_ntoa(src_addr.sin_addr) << " to " 
-                  << MCAST_GRP << std::endl;
     }
 
     return 0;
