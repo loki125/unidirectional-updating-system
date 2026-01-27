@@ -1,4 +1,6 @@
 services:
+
+# NETWORK AGENT SERVICES
   mongo:
     image: mongo:7
     container_name: mongo
@@ -7,9 +9,11 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    networks:
+      - na-net
 
   distributor:
-    build: ./distributor
+    build: ./network-agent/distributor
     image: na-distributor:latest
     container_name: na_distributor
     restart: "no"
@@ -17,7 +21,7 @@ services:
       - "11080:11080"
     volumes:
       - store_volume:/data/store_volume:ro
-      - ./distributor/service:/service/service
+      - ./network-agent/distributor/service:/service/service
     environment:
       STORE_PATH: /data/store_volume
       DB_HOST: http://mongo:27017
@@ -25,7 +29,7 @@ services:
       - na-net
 
   version-control:
-    build: ./version-control
+    build: ./network-agent/version-control
     image: na-version-control:latest
     container_name: na-versionControl
     restart: "no"
@@ -36,7 +40,7 @@ services:
     volumes:
       - updates_volume:/data/updates_volume
       - store_volume:/data/store_volume
-      - ./version-control/service:/service/service
+      - ./network-agent/version-control/service:/service/service
     environment:
       OUTPUT_PATH: /data/updates_volume
       STORE_PATH: /data/store_volume
@@ -75,6 +79,12 @@ networks:
   um-net:
     external: true
     name: network_um
+
+# LOCAL AGENT SERVICES
+
+
+
+#VOLUMES
 
 volumes:
   mongo_data:
