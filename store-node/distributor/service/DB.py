@@ -1,5 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from typing import Dict
+from typing import Dict, List
 
 class DB:
     def __init__(self, uri, name):
@@ -13,6 +13,14 @@ class DB:
 
     async def get_pkg(self, name : str) -> Dict | None:
         package = await self._collection.find_one({"Package": name})
+        if not package:
+            return None
+        return package
+    
+    async def get_pkg(self, depend : List) -> Dict | None:
+        package = await self._collection.find_one({"Package": depend[0], 
+                                                   "Version" : depend[1], 
+                                                   "Architucture" : depend[2]})
         if not package:
             return None
         return package

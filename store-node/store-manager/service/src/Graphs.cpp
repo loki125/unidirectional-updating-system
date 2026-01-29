@@ -27,9 +27,12 @@ const std::vector<std::size_t>& Graph::neighbors(std::size_t node) const {
     return adj_[node];
 }
 
-Graph& PackageGraph::graph() const
-{
+Graph& PackageGraph::graph(){
     return this->graph_;
+}
+
+const Graph& PackageGraph::graph() const {
+    return graph_;
 }
 
 std::size_t Graph::size() const noexcept {

@@ -177,8 +177,7 @@ void RTS::resolve_circular_dependencies(Graph &graph){
                 edges_to_cut.push_back({nodeA, nodeB});
             }
             else if (component.size() > 2) 
-                throw std::runtime_error("[RTS] [Cycle Breaker] Complex Cycle (Size {}) Detected! IDs: {}", 
-                              component.size(), fmt::join(component, ", "));
+                throw std::runtime_error("[RTS] [Cycle Breaker] Complex Cycle Detected");
         }
     };
 
@@ -210,22 +209,7 @@ std::vector<json> RTS::phrase_sorted_vector(const PackageGraph &pgraph, const st
 /*
 
 
-
-
-
-
-
 this is just so i know where the implementation of RTS ends and SLF starts
-
-
-
-
-
-
-
-
-
-
 
 */
 void SLF::build_slf(const json &package)

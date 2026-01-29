@@ -1,6 +1,4 @@
 services:
-
-# NETWORK AGENT SERVICES
   mongo:
     image: mongo:7
     container_name: mongo
@@ -11,27 +9,28 @@ services:
       - mongo_data:/data/db
     networks:
       - na-net
+    command: mongod --quiet --logpath /dev/null
+    logging:
+      driver: "none"
 
   distributor:
-    build: ./network-agent/distributor
-    image: na-distributor:latest
-    container_name: na_distributor
+    build: ./distributor
+    image: distributor:latest
+    container_name: distributor
     restart: "no"
     ports:
       - "11080:11080"
     volumes:
       - store_volume:/data/store_volume:ro
-      - ./network-agent/distributor/service:/service/service
+      - ./distributor/service:/service/service
     environment:
       STORE_PATH: /data/store_volume
-      DB_HOST: http://mongo:27017
-    networks:
-      - na-net
+      DB_HOST: mongodb://mongo:27017
 
-  version-control:
-    build: ./network-agent/version-control
-    image: na-version-control:latest
-    container_name: na-versionControl
+  store-manager:
+    build: ./store-manager
+    image: store-manager:latest
+    container_name: store-manager
     restart: "no"
     ports:
       - "40085:40085/udp"
@@ -40,7 +39,7 @@ services:
     volumes:
       - updates_volume:/data/updates_volume
       - store_volume:/data/store_volume
-      - ./network-agent/version-control/service:/service/service
+      - ./store-manager/service:/service/service
     environment:
       OUTPUT_PATH: /data/updates_volume
       STORE_PATH: /data/store_volume
@@ -49,12 +48,12 @@ services:
       FLUTE_PORT: "40085"
       IP: 238.1.1.95
     networks:
-      - na-net
+      - mcast-gateway
 
-  mcast-forwarder:
-    build: ./mcast-forwarder
-    image: mcast-forwarder:latest
-    container_name: mcast-forwarder
+  mcast-fwdr:
+    build: ./mcast-fwdr
+    image: mcast-fwdr:latest
+    container_name: mcast-fwdr
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -63,26 +62,22 @@ services:
     networks:
       um-net:
         ipv4_address: 172.30.0.254
-      na-net:
-        ipv4_address: 172.30.1.254
+      mcast-gateway:
+        ipv4_address: 172.30.1.2
 
 
 networks:
-  na-net:
-    name: network_na
+  mcast-gateway:
+    name: mcast-gateway
     driver: bridge
     ipam:
       config:
-        - subnet: 172.30.1.0/24
+        - subnet: 172.30.1.0/30
   
   # Connect to the network created by the other file
   um-net:
     external: true
     name: network_um
-
-# LOCAL AGENT SERVICES
-
-
 
 #VOLUMES
 

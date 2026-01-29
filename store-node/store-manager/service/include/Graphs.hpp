@@ -57,7 +57,9 @@ public:
     explicit PackageGraph(const std::vector<Package>& packages);
     explicit PackageGraph(int size) : graph_(size) {}
 
-    Graph& graph() const;
+    const Graph& graph() const;
+
+    Graph& graph();
 
     const Package& get_package(int id) const; 
 

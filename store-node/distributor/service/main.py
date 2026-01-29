@@ -1,38 +1,48 @@
 from io import BytesIO
-from typing import Dict
+from typing import Dict, List
 import zipfile
 from fastapi import FastAPI, HTTPException
 import os
 
 from fastapi.responses import StreamingResponse
-import DB
+from DB import DB
 
-app = FastAPI()
+service = FastAPI()
 
 STORE = os.getenv("STORE_PATH", "/data/store_volume")
 URI = os.getenv("DB_HOST", "mongodb://mongo:27017")
 
 db = DB(URI, "package_db")
 
-@app.on_event("startup")
+@service.on_event("startup")
 async def startup_event():
     print(">>> STARTUP RAN!")
     
-@app.post("/package")
+@service.post("/package")
 async def create_package(package: Dict):
     result = await db.insert_pkg(package)
     if not result:
         raise HTTPException(status_code=500, detail="Failed to insert document")
     return {"status": "success", "id": str(result.inserted_id)}
     
-@app.get("/pkg_by_name/{name}")
-async def get_package_by_name(name: str):
+@service.get("/pkgs_by_name/{name}")
+async def get_packages_by_name(name: str):
     result = await db.get_pkg(name)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
-@app.get("/download_pkg/{store_path}")
+@service.get("/depend/{list}")
+async def get_packages_by_name(depnde_list: List[List[str]]):
+    result : List[Dict]
+    for depend in depnde_list:
+        result.append(await db.get_depend(depend))
+        if not result:
+            raise HTTPException(status_code=404, detail="Package not found")
+    return result
+
+
+@service.get("/download_pkg/{store_path}")
 async def get_package_by_hash(store_path: str):
     folder_path = os.path.join(STORE, store_path)
     if not os.path.isdir(folder_path):
