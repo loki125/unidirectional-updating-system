@@ -8,7 +8,7 @@ services:
     volumes:
       - mongo_data:/data/db
     networks:
-      - na-net
+      - isolated-net
     command: mongod --quiet --logpath /dev/null
     logging:
       driver: "none"
@@ -26,6 +26,10 @@ services:
     environment:
       STORE_PATH: /data/store_volume
       DB_HOST: mongodb://mongo:27017
+    networks:
+      isolated-net:
+        ipv4_address: 192.168.50.4
+        
 
   store-manager:
     build: ./store-manager
@@ -48,6 +52,7 @@ services:
       FLUTE_PORT: "40085"
       IP: 238.1.1.95
     networks:
+      - isolated-net
       - mcast-gateway
 
   mcast-fwdr:
@@ -72,7 +77,17 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.30.1.0/30
+        - subnet: 172.30.1.0/29
+        
+  isolated-net:
+    driver: bridge
+    name: network_isolated
+    driver_opts:
+      com.docker.network.bridge.name: br-isolated
+    ipam:
+      config:
+        - subnet: 192.168.50.0/24
+          gateway: 192.168.50.1
   
   # Connect to the network created by the other file
   um-net:
