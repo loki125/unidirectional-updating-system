@@ -19,6 +19,6 @@ ENV PYTHONUNBUFFERED=1
 
 COPY service/ /service
 
-EXPOSE 8000
+EXPOSE 11080
 
-CMD ["uvicorn", "service.main:service", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "service.main:service", "--host", "0.0.0.0", "--port", "11080"]

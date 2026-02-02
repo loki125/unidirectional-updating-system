@@ -20,9 +20,12 @@ async def startup_event():
     
 @service.post("/package")
 async def create_package(package: Dict):
-    result = await db.insert_pkg(package)
+    result = await db.pkg_exists(package)
     if not result:
-        raise HTTPException(status_code=500, detail="Failed to insert document")
+        raise HTTPException(status_code=500, detail="Failed to find document")
+    
+    #broadcast new package logic
+    
     return {"status": "success", "id": str(result.inserted_id)}
     
 @service.get("/pkgs_by_name/{name}")

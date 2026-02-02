@@ -46,6 +46,7 @@ public:
     /**
      * Entry point for building the SLF instructions.
      */
-    static void build_slf(const json& package);
+    static void build_slf(const json &package, const fs::path& store_volume);
+
 
 };

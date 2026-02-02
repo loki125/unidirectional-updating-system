@@ -65,11 +65,21 @@ void PackageGraph::add_depend(const Package &pkg)
 }
 
 int PackageGraph::add_pkg(const Package& pkg){
-    
-    if (pkg_to_id.find(pkg) == pkg_to_id.end()) {
+    auto it = pkg_to_id.find(pkg);
+
+    if (it == pkg_to_id.end()) {
         size_t new_id = id_to_pkg.size();
         id_to_pkg.push_back(pkg);
         pkg_to_id[pkg] = new_id;
+    }
+    else{
+        auto [found_pkg, found_id] = *it;
+
+        if(!pkg.package_json.is_null()){
+            id_to_pkg[found_id] = pkg;
+            pkg_to_id.erase(found_pkg);
+            pkg_to_id[pkg] = found_id;
+        }
     }
     return pkg_to_id[pkg];
 }

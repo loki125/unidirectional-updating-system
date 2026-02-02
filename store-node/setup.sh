@@ -34,4 +34,6 @@ for PORT in "${PORTS[@]}"; do
 
 done
 
+docker compose down && docker compose up --build
+
 echo "[+] Setup complete!"

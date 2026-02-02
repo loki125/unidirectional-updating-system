@@ -13,6 +13,8 @@ void Store::run()
                 throw std::runtime_error("Non-regular file found in receiver directory, expected only regular files!");
 
             std::filesystem::path processing = processing_dir / entry.path().filename();
+            std::vector<std::filesystem::path> created_paths;
+            bool error_occurred = false;
             try {
                 // atomic claim
                 std::filesystem::copy_file(entry.path(), processing, std::filesystem::copy_options::overwrite_existing);
@@ -27,39 +29,66 @@ void Store::run()
                 std::vector<json> rts_vector = RTS::sort(manifest);
 
                 for(const auto& package : rts_vector){
-                    std::string f_path = package.at("Store_Path");
-                    std::filesystem::path f_path_fs = std::filesystem::path(f_path);
+                    std::string path = package.at("Store_Path").get<std::string>();
+                    std::filesystem::path f_path_fs = this->store_vol / path;
 
                     if (std::filesystem::exists(f_path_fs))
                         continue;
 
-                    std::filesystem::create_directories(f_path_fs.parent_path());
+                    std::filesystem::create_directories(f_path_fs);
+                    created_paths.push_back(f_path_fs);
+                    std::string filename = package.at("Filename").get<std::string>();
+
                     std::filesystem::rename(
-                        this->store_vol / f_path_fs / package["File_Name"].get<std::string>(), 
-                        f_path_fs
+                        processing_dir / filename, 
+                        f_path_fs / filename
                     );
 
-                    SLF::build_slf(package);
+                    SLF::build_slf(package, this->store_vol);
+
+                    auto bson_doc = bsoncxx::from_json(package.dump());
+                    this->db.collection.insert_one(bson_doc.view());
+
                     this->update_distributor(package);
                     
                 }
 
-                // reset volume
+            } catch (const std::exception& e) {
+                
+                spdlog::warn("[STORE] error while processing {}: {}", entry.path().string(), e.what());
+                error_occurred = true;
+            }
+
+            // reset volume
+            try{
+                // cleanup created paths
+                if (error_occurred){                 
+                    for (const auto& p : created_paths) {
+                        std::filesystem::remove_all(p);
+                    }
+                    spdlog::info("[STORE] Cleaned up created paths after error.");
+                }
+
+                created_paths.clear();
+
                 std::filesystem::remove_all(processing_dir);
                 std::filesystem::create_directories(processing_dir);
 
-            } catch (const std::filesystem::filesystem_error& e) {
-                // file might have been claimed already
-                spdlog::warn("[STORE] Filesystem error while processing {}: {}", entry.path().string(), e.what());
+                error_occurred = false;
+            } catch (const std::filesystem::filesystem_error& e){
+                throw std::filesystem::filesystem_error(
+                    "[STORE] [CRITICAL ERROR] Failed to cleanup Store Volume",
+                    e.path1(),
+                    e.code()
+                );
             }
-        
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
     }
 }
 
-Store::Store()
+Store::Store() : db(set_env_var("MONGO_URI"), "packages_db", "packages")
 {
     this->store_vol = set_env_var("STORE_PATH");
     std::filesystem::path output_path = set_env_var("OUTPUT_PATH");

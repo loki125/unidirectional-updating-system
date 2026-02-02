@@ -113,7 +113,6 @@ std::vector<int> RTS::sort_algo(const Graph &graph){
     if (result.size() != n) 
         throw std::runtime_error("Circular dependency detected"); // circular dependency detected
 
-    spdlog::info("[RTS] Topological Sort Result: {}\n", fmt::join(result, ", "));
     return result;
 }
 
@@ -190,7 +189,6 @@ void RTS::resolve_circular_dependencies(Graph &graph){
 
     // excecute edge removals
     for (const auto& edge : edges_to_cut) {
-        spdlog::info("[Cycle Breaker] Severing dependency: {} -> {}", edge.first, edge.second);
         graph.rm_edge(edge.first, edge.second);
     }
 
@@ -200,36 +198,38 @@ std::vector<json> RTS::phrase_sorted_vector(const PackageGraph &pgraph, const st
 {
     std::vector<json> sorted_packages;
     for (const auto& index : sorted_vector) {
-        sorted_packages.push_back(pgraph.get_package(index).package_json);
-        spdlog::info("\n[RTS] Sorted Package: {}\n", pgraph.get_package(index).package_json.dump());
+        json pkg_json = pgraph.get_package(index).package_json;
+        
+        sorted_packages.push_back(pkg_json);
+        spdlog::info("\n[RTS] package index {}\nSorted Package: {}\n", index, pkg_json.dump(4));
     }
     return sorted_packages;
 }
 
 /*
 
-
 this is just so i know where the implementation of RTS ends and SLF starts
 
 */
-void SLF::build_slf(const json &package)
+void SLF::build_slf(const json &package, const fs::path& store_volume)
 {
     try {
         std::string pkg_type = package.at("Type");
 
-        std::string store_path = package.at("Store_path");
-        std::string deb_file = package.at("FileName");
+        fs::path final_store_path = store_volume / package.at("Store_Path").get<std::string>();
+        std::string file_name = package.at("Filename").get<std::string>();
+
 
         if (pkg_type == "Debian")     
-            deb_inspector(store_path, deb_file);
+            deb_inspector(final_store_path, file_name);
         
         else {
-            spdlog::error("[SLF] Unknown package type: {}", pkg_type);
+            throw std::runtime_error("Unknown package type: " + pkg_type);
         }
     } catch (const json::exception& e) {
-        spdlog::error("[SLF] JSON Error: {}", e.what());
+        throw std::runtime_error("[SLF] JSON Error: " + std::string(e.what()));
     } catch (const std::exception& e) {
-        spdlog::error("[SLF] Error: {}", e.what());
+        throw std::runtime_error("[SLF] Error: " + std::string(e.what()));
     }
 }
 
@@ -329,7 +329,7 @@ void SLF::deb_inspector(const fs::path& store_path, const std::string& deb_filen
     std::ofstream o(json_out);
     o << std::setw(4) << instructions << std::endl;
 
-    spdlog::info("[SLF] Generated {}", json_out.string());
+    spdlog::info("[SLF] Generated:\n{}\n", instructions.dump(4));
 
     // Cleanup
     fs::remove_all(temp_dir);

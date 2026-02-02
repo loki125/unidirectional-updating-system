@@ -7,10 +7,6 @@ class DB:
         _db = _client[name]
         self._collection = _db["packages"]
 
-    async def insert_pkg(self, package_data):
-        result = await self._collection.insert_one(package_data)
-        return result.inserted_id
-
     async def get_pkg(self, name : str) -> Dict | None:
         package = await self._collection.find_one({"Package": name})
         if not package:
@@ -24,3 +20,7 @@ class DB:
         if not package:
             return None
         return package
+    
+    async def pkg_exists(self, package_data: Dict) -> bool:
+        package = await self._collection.find_one({"Store_path": package_data["Store_path"]})
+        return package is not None

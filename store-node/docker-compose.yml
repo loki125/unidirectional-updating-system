@@ -48,6 +48,7 @@ services:
       OUTPUT_PATH: /data/updates_volume
       STORE_PATH: /data/store_volume
       DISTRIBUTOR_URL: http://distributor:11080
+      MONGO_URI: mongodb://mongo:27017
       UPDATE_FILE_REQUEST: /package
       FLUTE_PORT: "40085"
       IP: 238.1.1.95

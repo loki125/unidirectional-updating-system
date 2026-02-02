@@ -20,6 +20,28 @@ RUN apt-get update && apt-get install -y \
     libstdc++-12-dev \
     && rm -rf /var/lib/apt/lists/*
 
+
+WORKDIR /tmp
+
+# Clone & Install Mongo C Driver (Required Dependency)
+RUN git clone --depth 1 --branch 1.29.0 https://github.com/mongodb/mongo-c-driver.git \
+    && cd mongo-c-driver \
+    && mkdir cmake-build && cd cmake-build \
+    && cmake -G Ninja -DENABLE_AUTOMATIC_INIT_AND_CLEANUP=OFF -DCMAKE_BUILD_TYPE=Release .. \
+    && cmake --build . --target install \
+    && cd /tmp && rm -rf mongo-c-driver
+
+# Clone & Install Mongo C++ Driver
+RUN git clone --depth 1 --branch r4.0.0 https://github.com/mongodb/mongo-cxx-driver.git \
+    && cd mongo-cxx-driver \
+    && mkdir cmake-build && cd cmake-build \
+    && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DBUILD_ONLY_CXX_DRIVER=ON .. \
+    && cmake --build . --target install \
+    && cd /tmp && rm -rf mongo-cxx-driver
+
+# Refresh system libs
+RUN ldconfig
+
 WORKDIR /service
 
 # Clone rt-libflute library directly into service workspace
@@ -38,7 +60,7 @@ COPY service/ .
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build
 
-RUN cp build/FluteReceiver /usr/local/bin/
+RUN cp build/StoreManager /usr/local/bin/
 
 # Set the command to run the executable when the container starts.
-ENTRYPOINT ["/usr/local/bin/FluteReceiver"]
+ENTRYPOINT ["/usr/local/bin/StoreManager"]

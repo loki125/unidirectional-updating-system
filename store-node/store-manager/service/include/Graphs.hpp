@@ -31,7 +31,7 @@ struct Package {
     json package_json;
     std::vector<Package> dependencies; // Recursive definition
 
-    Package(const json& pkg_json) {
+    Package(const json pkg_json) {
         package_json = pkg_json;
 
         name = package_json.at("Package").get<std::string>();
