@@ -35,8 +35,15 @@ async def get_packages_by_name(name: str):
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
+@service.get("/pkgs_by_hash/{hash}")
+async def get_packages_by_hash(hash: str):
+    result = await db.get_pkg_by_hash(hash)
+    if not result:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return result
+
 @service.get("/depend/{list}")
-async def get_packages_by_name(depnde_list: List[List[str]]):
+async def get_packages_by_depends(depnde_list: List[List[str]]):
     result : List[Dict]
     for depend in depnde_list:
         result.append(await db.get_depend(depend))

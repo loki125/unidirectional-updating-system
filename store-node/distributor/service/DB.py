@@ -13,10 +13,16 @@ class DB:
             return None
         return package
     
-    async def get_pkg(self, depend : List) -> Dict | None:
+    async def get_pkg_by_hash(self, hash : str) -> Dict | None:
+        package = await self._collection.find_one({"SHA256": hash})
+        if not package:
+            return None
+        return package
+    
+    async def get_depend(self, depend : List) -> Dict | None:
         package = await self._collection.find_one({"Package": depend[0], 
                                                    "Version" : depend[1], 
-                                                   "Architucture" : depend[2]})
+                                                   "Architecture" : depend[2]})
         if not package:
             return None
         return package

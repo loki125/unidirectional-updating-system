@@ -43,9 +43,7 @@ void Store::run()
                         processing_dir / filename, 
                         f_path_fs / filename
                     );
-
-                    SLF::build_slf(package, this->store_vol);
-
+                    
                     auto bson_doc = bsoncxx::from_json(package.dump());
                     this->db.collection.insert_one(bson_doc.view());
 
