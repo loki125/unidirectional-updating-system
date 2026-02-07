@@ -86,7 +86,7 @@ void Store::run()
     }
 }
 
-Store::Store() : db(set_env_var("MONGO_URI"), "packages_db", "packages")
+Store::Store() : db(set_env_var("MONGO_URI"), set_env_var("MONGO_PACKAGES_DB"), set_env_var("MONGO_PACKAGES_COLLECTION"))
 {
     this->store_vol = set_env_var("STORE_PATH");
     std::filesystem::path output_path = set_env_var("OUTPUT_PATH");

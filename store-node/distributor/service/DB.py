@@ -1,11 +1,11 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Dict, List
 
-class DB:
-    def __init__(self, uri, name):
+class PackageDB:
+    def __init__(self, uri, name, collection):
         _client = AsyncIOMotorClient(uri)
         _db = _client[name]
-        self._collection = _db["packages"]
+        self._collection = _db[collection]
 
     async def get_pkg(self, name : str) -> Dict | None:
         package = await self._collection.find_one({"Package": name})

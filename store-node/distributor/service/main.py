@@ -1,18 +1,22 @@
 from io import BytesIO
+import pprint
 from typing import Dict, List
 import zipfile
 from fastapi import FastAPI, HTTPException
 import os
 
 from fastapi.responses import StreamingResponse
-from DB import DB
+from DB import PackageDB
 
 service = FastAPI()
 
 STORE = os.getenv("STORE_PATH", "/data/store_volume")
-URI = os.getenv("DB_HOST", "mongodb://mongo:27017")
 
-db = DB(URI, "package_db")
+db = PackageDB(
+    uri=os.getenv("DB_HOST", "mongodb://mongo:27017"),
+    name=os.getenv("MONGO_PACKAGES_DB"),
+    collection=os.getenv("MONGO_PACKAGES_COLLECTION")
+)
 
 @service.on_event("startup")
 async def startup_event():
@@ -20,13 +24,15 @@ async def startup_event():
     
 @service.post("/package")
 async def create_package(package: Dict):
-    result = await db.pkg_exists(package)
-    if not result:
+    result = await db.get_pkg_by_hash(package["SHA256"])
+    if result is None:
         raise HTTPException(status_code=500, detail="Failed to find document")
+    
+    pprint.pprint("new package added to db: " + str(result))
     
     #broadcast new package logic
     
-    return {"status": "success", "id": str(result.inserted_id)}
+    return {"status": "success", "id": str(result["_id"])}
     
 @service.get("/pkgs_by_name/{name}")
 async def get_packages_by_name(name: str):
