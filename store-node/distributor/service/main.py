@@ -34,21 +34,21 @@ async def create_package(package: Dict):
     
     return {"status": "success", "id": str(result["_id"])}
     
-@service.get("/pkgs_by_name/{name}")
+@service.get("/pkgs_by_name")
 async def get_packages_by_name(name: str):
     result = await db.get_pkg(name)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
-@service.get("/pkgs_by_hash/{hash}")
+@service.get("/pkgs_by_hash")
 async def get_packages_by_hash(hash: str):
     result = await db.get_pkg_by_hash(hash)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
-@service.get("/depend/{list}")
+@service.get("/depend")
 async def get_packages_by_depends(depnde_list: List[List[str]]):
     result : List[Dict]
     for depend in depnde_list:
@@ -58,7 +58,7 @@ async def get_packages_by_depends(depnde_list: List[List[str]]):
     return result
 
 
-@service.get("/download_pkg/{store_path}")
+@service.get("/download_pkg")
 async def get_package_by_hash(store_path: str):
     folder_path = os.path.join(STORE, store_path)
     if not os.path.isdir(folder_path):
