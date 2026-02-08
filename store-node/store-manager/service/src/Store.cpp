@@ -34,7 +34,7 @@ void Store::run()
                     std::filesystem::path f_path_fs = this->store_vol / path;
 
                     if (std::filesystem::exists(f_path_fs)){
-                        spdlog::debug("[STORE] path {} already exists", f_path_fs.string());
+                        spdlog::info("[STORE] path {} already exists", f_path_fs.string());
                         continue;
                     }
 

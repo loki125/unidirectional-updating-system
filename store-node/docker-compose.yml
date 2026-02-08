@@ -16,7 +16,7 @@ services:
       - mongo_data:/data/db
     networks:
       - isolated-net
-    command: mongod --quiet --logpath /dev/null
+    command: mongod --wiredTigerCacheSizeGB=0.25 --quiet --logpath /dev/null
     logging:
       driver: "none"
 
@@ -59,6 +59,11 @@ services:
     networks:
       - isolated-net
       - mcast-gateway
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1'
 
   mcast-fwdr:
     build: ./mcast-fwdr
