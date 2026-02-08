@@ -5,19 +5,19 @@
 #include <filesystem>
 #include <vector>
 #include <string>
-#include <set>
 #include <cstdlib>
+#include <unordered_map>
+#include <set>
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 #include "Graphs.hpp"
+#include "PackageReader.hpp"
 
-using json = nlohmann::json;
-
-//reverse topological sort
-class RTS {
+//Global Sort Order
+class GSO {
 private:
     static PackageGraph graph_builder(const json& manifest_json);
 
@@ -29,24 +29,24 @@ private:
     
 public:
     static std::vector<json> sort(const json &manifest_json); 
+
+    static std::unordered_map<std::string, int> get_global_priority_map(const std::vector<json>& sorted_pkgs);
 };
 
-// symetic linked forest 
-class SLF {
-private:
-    // Helper: Check if a file is executable
-    static bool is_executable(const fs::path& p);
 
-    /**
-     * Unpacks .deb, scans for .so/bins, generates JSON, cleans up.
-     */
-    static void deb_inspector(const fs::path& store_path, const std::string& deb_filename);
+
+class RecipeMaker {
+private:
+    json global_manifest;
+    std::unordered_map<std::string, int> priority_map;
+    std::unordered_map<std::string, json> pkg_lookup;
 
 public:
-    /**
-     * Entry point for building the SLF instructions.
-     */
-    static void build_slf(const json &package, const fs::path& store_volume);
+    RecipeMaker(const json& manifest);
 
+    void generate_recipe(const fs::path& directory_path, const std::string& type);
 
+private:
+    // Helper to calculate mounts 
+    json calculate_mounts(const std::string& my_name, const std::vector<std::string>& direct_deps);
 };

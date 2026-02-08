@@ -26,14 +26,17 @@ void Store::run()
                 json manifest = extractor.get_manifest();
                 spdlog::info("[STORE] manifest.json extracted successfully");
 
-                std::vector<json> rts_vector = RTS::sort(manifest);
+                std::vector<json> package_vector = manifest.at("Packages").get<std::vector<json>>();
+                RecipeMaker maker(manifest);
 
-                for(const auto& package : rts_vector){
+                for(const auto& package : package_vector){
                     std::string path = package.at("Store_Path").get<std::string>();
                     std::filesystem::path f_path_fs = this->store_vol / path;
 
-                    if (std::filesystem::exists(f_path_fs))
+                    if (std::filesystem::exists(f_path_fs)){
+                        spdlog::debug("[STORE] path {} already exists", f_path_fs.string());
                         continue;
+                    }
 
                     std::filesystem::create_directories(f_path_fs);
                     created_paths.push_back(f_path_fs);
@@ -43,6 +46,7 @@ void Store::run()
                         processing_dir / filename, 
                         f_path_fs / filename
                     );
+                    maker.generate_recipe(f_path_fs, package.at("Type").get<std::string>());
                     
                     auto bson_doc = bsoncxx::from_json(package.dump());
                     this->db.collection.insert_one(bson_doc.view());
@@ -121,6 +125,7 @@ void Store::update_distributor(const json& package_json){
             } else {
                 spdlog::error("[STORE] Distributor returned error status: {}", res->status);
             }
+            spdlog::info("[STORE] Distributor response body: {}", res->body);
         } else {
             auto err = res.error();
             spdlog::error("[STORE] Failed to connect to distributor ({}): {}", this->distributor_path, httplib::to_string(err));

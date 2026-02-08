@@ -5,7 +5,7 @@
 #include <functional>
 #include <spdlog/spdlog.h> 
 
-std::vector<json> RTS::sort(const json &manifest_json)
+std::vector<json> GSO::sort(const json &manifest_json)
 {  
     if (manifest_json.is_null())
         throw std::runtime_error("Failed to extract manifest.json");
@@ -20,7 +20,16 @@ std::vector<json> RTS::sort(const json &manifest_json)
     return phrase_sorted_vector(pgraph, sorted_vector);
 }
 
-PackageGraph RTS::graph_builder(const json &manifest_json)
+std::unordered_map<std::string, int> GSO::get_global_priority_map(const std::vector<json>& sorted_pkgs) {
+    std::unordered_map<std::string, int> map;
+    for (size_t i = 0; i < sorted_pkgs.size(); ++i) {
+        std::string name = sorted_pkgs[i]["Package"];
+        map[name] = static_cast<int>(i);
+    }
+    return map;
+}
+
+PackageGraph GSO::graph_builder(const json &manifest_json)
 {
     const std::vector<json>& pkg_list = manifest_json.at("Packages").get<std::vector<json>>();
 
@@ -46,7 +55,7 @@ PackageGraph RTS::graph_builder(const json &manifest_json)
     return pgraph;
 }
 
-std::vector<int> RTS::sort_algo(const Graph &graph){
+std::vector<int> GSO::sort_algo(const Graph &graph){
     /*
     Reverse Topological Sort Algorithm Explanation:
     1. create G' as G reversed
@@ -116,7 +125,7 @@ std::vector<int> RTS::sort_algo(const Graph &graph){
     return result;
 }
 
-void RTS::resolve_circular_dependencies(Graph &graph){
+void GSO::resolve_circular_dependencies(Graph &graph){
     /* 
     Using Tarjan's Algorithm for Strongly Connected Components to detect cycles.
        by each cycle if size == 2. Soft conflict, remove one direction.
@@ -176,7 +185,7 @@ void RTS::resolve_circular_dependencies(Graph &graph){
                 edges_to_cut.push_back({nodeA, nodeB});
             }
             else if (component.size() > 2) 
-                throw std::runtime_error("[RTS] [Cycle Breaker] Complex Cycle Detected");
+                throw std::runtime_error("[GSO] [Cycle Breaker] Complex Cycle Detected");
         }
     };
 
@@ -194,144 +203,129 @@ void RTS::resolve_circular_dependencies(Graph &graph){
 
 }
 
-std::vector<json> RTS::phrase_sorted_vector(const PackageGraph &pgraph, const std::vector<int> &sorted_vector)
+std::vector<json> GSO::phrase_sorted_vector(const PackageGraph &pgraph, const std::vector<int> &sorted_vector)
 {
     std::vector<json> sorted_packages;
     for (const auto& index : sorted_vector) {
         json pkg_json = pgraph.get_package(index).package_json;
         
         sorted_packages.push_back(pkg_json);
-        spdlog::info("\n[RTS] package index {}\nSorted Package: {}\n", index, pkg_json.dump(4));
+        spdlog::info("\n[GSO] package index {}\nSorted Package: {}\n", index, pkg_json.dump(4));
     }
     return sorted_packages;
 }
 
 /*
 
-this is just so i know where the implementation of RTS ends and SLF starts
+this is just so i know where the implementation of GSO ends and RecipeMaker starts
 
 */
-void SLF::build_slf(const json &package, const fs::path& store_volume)
-{
-    try {
-        std::string pkg_type = package.at("Type");
 
-        fs::path final_store_path = store_volume / package.at("Store_Path").get<std::string>();
-        std::string file_name = package.at("Filename").get<std::string>();
+RecipeMaker::RecipeMaker(const json& manifest) : global_manifest(manifest) {
+    if (!manifest.contains("Packages")) 
+        throw std::runtime_error("Invalid Manifest");
 
+    // Calculate Global Sort Order (GSO)
+    std::vector<json> sorted_pkgs = GSO::sort(manifest);
+    priority_map = GSO::get_global_priority_map(sorted_pkgs);
 
-        if (pkg_type == "Debian")     
-            deb_inspector(final_store_path, file_name);
-        
-        else {
-            throw std::runtime_error("Unknown package type: " + pkg_type);
-        }
-    } catch (const json::exception& e) {
-        throw std::runtime_error("[SLF] JSON Error: " + std::string(e.what()));
-    } catch (const std::exception& e) {
-        throw std::runtime_error("[SLF] Error: " + std::string(e.what()));
+    // Build Lookup Table
+    for (const auto& pkg : manifest["Packages"]) {
+        std::string name = pkg["Package"];
+        pkg_lookup[name] = pkg;
     }
 }
 
-bool SLF::is_executable(const fs::path& p) {
-    auto perms = fs::status(p).permissions();
-    return (perms & fs::perms::owner_exec) != fs::perms::none ||
-            (perms & fs::perms::group_exec) != fs::perms::none ||
-            (perms & fs::perms::others_exec) != fs::perms::none;
-}
+void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::string& type) {
 
-void SLF::deb_inspector(const fs::path& store_path, const std::string& deb_filename) {
+    auto reader = PackageReader::create(type);
+    fs::path pkg_path = reader->get_pkg_path(directory_path);
+
+    // Extract Info using the Reader
+    std::string pkg_name = reader->get_name(pkg_path.string());
     
-    fs::path full_deb_path = store_path / deb_filename;
-
-    if (!fs::exists(full_deb_path)) {
-        spdlog::error("[SLF] Error: .deb file not found at {}", full_deb_path.string());
-        return;
+    // Verify existence in global manifest
+    if (pkg_lookup.find(pkg_name) == pkg_lookup.end()) {
+        throw std::runtime_error("Package '" + pkg_name + "' not found in Global Manifest");
     }
 
-    // Prepare Temp Extraction Directory
-    fs::path temp_dir = store_path / "temp_slf_extraction";
-    if (fs::exists(temp_dir)) fs::remove_all(temp_dir);
-    fs::create_directory(temp_dir);
+    json my_meta = pkg_lookup[pkg_name];
+    json recipe;
+    
+    recipe["package_name"] = pkg_name;
+    recipe["version"] = reader->get_version(pkg_path.string());
 
-    spdlog::info("[SLF] Extracting to temp dir...");
-
-    // Extract outer .deb (using 'ar')
-    std::string cmd_ar = "cd " + temp_dir.string() + " && ar x " + full_deb_path.string() + " > /dev/null 2>&1";
-    if (std::system(cmd_ar.c_str()) != 0) {
-        spdlog::error("[SLF] Failed to extract .deb archive.");
-        fs::remove_all(temp_dir);
-        return;
-    }
-
-    // Find and Extract data.tar.*
-    fs::path data_tar;
-    bool found_tar = false;
-    for (const auto& entry : fs::directory_iterator(temp_dir)) {
-        std::string name = entry.path().filename().string();
-        if (name.find("data.tar") != std::string::npos) {
-            data_tar = entry.path();
-            found_tar = true;
-            break;
+    // Flatten Dependencies
+    std::vector<std::string> flat_deps;
+    if (my_meta.contains("Dependencies")) {
+        for (const auto& group : my_meta["Dependencies"]) {
+            if (!group.empty()) {
+                std::string raw = group[0];
+                std::string clean = raw.substr(0, raw.find(' '));
+                flat_deps.push_back(clean);
+            }
         }
     }
+    recipe["dependencies"] = flat_deps;
 
-    if (!found_tar) {
-        spdlog::error("[SLF] data.tar not found inside .deb");
-        fs::remove_all(temp_dir);
-        return;
-    }
+    // Calculate Recursive Mounts
+    json mount_instr = calculate_mounts(pkg_name, flat_deps);
+    recipe["mount_instructions"] = mount_instr;
 
-    std::string cmd_tar = "tar -xf " + data_tar.string() + " -C " + temp_dir.string() + " > /dev/null 2>&1";
-    if (std::system(cmd_tar.c_str()) != 0) {
-        spdlog::error("[SLF] Failed to unpack data.tar");
-        fs::remove_all(temp_dir);
-        return;
-    }
+    // Get Files & Scripts
+    recipe["symlink_forest"] = reader->get_files(pkg_path.string());
+    recipe["scripts"] = reader->get_scripts(pkg_path.string());
 
-    std::vector<std::string> found_binaries;
-    std::set<std::string> found_lib_dirs;
+    // Write Output
+    fs::path recipe_out = directory_path / "recipe.json";
+    std::ofstream out(recipe_out);
+    out << recipe.dump(4);
+    out.close();
 
-    spdlog::info("[SLF] Scanning for assets...");
+    spdlog::info("Recipe generated: {}", recipe_out.string());
+}
 
-    for (const auto& entry : fs::recursive_directory_iterator(temp_dir)) {
-        if (!entry.is_regular_file()) continue;
 
-        fs::path current_path = entry.path();
-        std::string filename = current_path.filename().string();
-        
-        // Get path relative to the extraction root (e.g., usr/bin/app)
-        fs::path relative_p = fs::relative(current_path, temp_dir);
-        std::string rel_str = relative_p.string();
+json RecipeMaker::calculate_mounts(const std::string& my_name, const std::vector<std::string>& direct_deps) {
+    std::set<std::string> recursive_deps;
+    std::vector<std::string> q = direct_deps;
+    size_t head = 0;
 
-        // Check for Shared Objects (.so)
-        if (filename.find(".so") != std::string::npos) {
-            // We save the DIRECTORY containing the lib
-            found_lib_dirs.insert(relative_p.parent_path().string());
-        }
+    // BFS
+    while(head < q.size()){
+        std::string curr = q[head++];
+        if (recursive_deps.count(curr)) continue;
+        recursive_deps.insert(curr);
 
-        // Check for Binaries
-        // Criteria: Executable AND (in bin/sbin OR no extension) AND not a library
-        if (is_executable(current_path) && filename.find(".so") == std::string::npos) {
-            if (rel_str.find("/bin") != std::string::npos || rel_str.find("/sbin") != std::string::npos) {
-                found_binaries.push_back(rel_str);
+        if (pkg_lookup.count(curr)) {
+            for(const auto& g : pkg_lookup[curr]["Dependencies"]){
+                if(!g.empty()) {
+                    std::string raw = g[0];
+                    std::string clean = raw.substr(0, raw.find(' '));
+                    q.push_back(clean);
+                }
             }
         }
     }
 
-    // Generate instructions.json
-    json instructions;
-    instructions["package_file"] = deb_filename;
-    instructions["binaries"] = found_binaries;
-    instructions["exported_library_paths"] = std::vector<std::string>(found_lib_dirs.begin(), found_lib_dirs.end());
+    std::vector<std::string> sorted_mounts(recursive_deps.begin(), recursive_deps.end());
+    
+    // Sort by Priority
+    std::sort(sorted_mounts.begin(), sorted_mounts.end(), 
+        [&](const std::string& a, const std::string& b) {
+            return priority_map[a] < priority_map[b];
+        }
+    );
 
-    fs::path json_out = store_path / "instructions.json";
-    std::ofstream o(json_out);
-    o << std::setw(4) << instructions << std::endl;
+    json required_mounts = json::array();
+    for(const auto& pkg : sorted_mounts) {
+        if (pkg_lookup.count(pkg) && pkg_lookup[pkg].contains("Store_Path")) {
+            required_mounts.push_back(pkg_lookup[pkg]["Store_Path"]);
+        }
+    }
 
-    spdlog::info("[SLF] Generated:\n{}\n", instructions.dump(4));
-
-    // Cleanup
-    fs::remove_all(temp_dir);
-    spdlog::info("[SLF] Cleanup complete.");
+    json instr;
+    instr["lowerdir_priority"] = priority_map[my_name];
+    instr["required_mounts"] = required_mounts;
+    return instr;
 }

@@ -16,6 +16,7 @@ add_executable(StoreManager main.cpp
     src/Graphs.cpp
     src/Store.cpp
     src/TarExtractor.cpp
+    src/PackageReader.cpp
 )
 
 # Include httplib paths

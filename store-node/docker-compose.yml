@@ -1,4 +1,3 @@
-version: "3.9"
 
 x-common-env: &common-env
   STORE_PATH: ${STORE_PATH}

@@ -22,8 +22,6 @@ struct ft_arguments {
 
 class FluteReceiver{
 
-    void upload_update(const std::string& file_name, const json &sort_json); // post call to http server
-
     void set_receiver();
 
     boost::asio::io_context io;
