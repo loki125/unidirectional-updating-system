@@ -11,6 +11,7 @@ from DB import PackageDB
 service = FastAPI()
 
 STORE = os.getenv("STORE_PATH", "/data/store_volume")
+STORE_MANAGER_UPDATES : str = os.getenv("UPDATE_FILE_REQUEST")
 
 db = PackageDB(
     uri=os.getenv("DB_HOST", "mongodb://mongo:27017"),
@@ -22,7 +23,7 @@ db = PackageDB(
 async def startup_event():
     print(">>> STARTUP RAN!")
     
-@service.post("/package")
+@service.post(STORE_MANAGER_UPDATES)
 async def create_package(package: Dict):
     result = await db.get_pkg_by_hash(package["SHA256"])
     if result is None:

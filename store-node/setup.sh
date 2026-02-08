@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+docker compose down > /dev/null 2>&1
+
 BRIDGE="br-isolated"
 BRIDGE_IP="192.168.50.1/24"
 
@@ -34,6 +36,10 @@ for PORT in "${PORTS[@]}"; do
 
 done
 
-docker compose down && docker compose up --build
+if [[ $1 == -b ]]; then 
+    docker compose build
+fi
 
-echo "[+] Setup complete!"
+echo "[+] Setup complete!" && docker compose up
+
+

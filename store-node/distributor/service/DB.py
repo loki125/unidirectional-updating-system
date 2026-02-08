@@ -1,4 +1,3 @@
-from distro import name
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Dict, List
 
