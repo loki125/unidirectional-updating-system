@@ -43,3 +43,28 @@ async def test_event():
         pass
         
     print("FINISHED SENDING UPDATE")
+
+@app.post("/update")
+async def test_event(package_name: str, version: str, architecture: str):
+    print(f"tying to send update for {package_name}, {version}, {architecture}")
+    engine = service_factory.get_engine("Debian")
+    metadata : PackageMetadata
+    async with engine:
+        file_name = await engine.get_package_file(package_name, version, architecture)
+        metadata = await engine.get_package_metadata(file_name)
+
+    async with flute_broadcaster:
+        await flute_broadcaster.send_update(file_name, metadata, service_factory, BROADCASTER_VOLUME)
+        pass
+        
+    print("FINISHED SENDING UPDATE")
+
+@app.get("/instance")
+async def get_package_metadata(package_name: str, type: str):
+    engine = service_factory.get_engine(type)
+    async with engine:
+        instance = await engine.get_package_instances(package_name)
+    
+    if instance is None:
+        return {"error": "Package not found"}
+    return instance

@@ -282,7 +282,7 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::str
     out << recipe.dump(4);
     out.close();
 
-    spdlog::info("Recipe generated: {}", recipe_out.string());
+    spdlog::info("Recipe generated: \n{}", recipe.dump(4));
 }
 
 

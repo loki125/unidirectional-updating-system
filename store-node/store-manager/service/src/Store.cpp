@@ -5,88 +5,108 @@
 
 void Store::run()
 {
+    // Ensure processing directory exists
     std::filesystem::path processing_dir = this->store_vol / PROCESSING_DIR;
-    
+    std::filesystem::create_directories(processing_dir);
+
     while (true) {
-        for (auto& entry : std::filesystem::directory_iterator(this->receiver_vol)) {
-            if (!entry.is_regular_file()) 
-                throw std::runtime_error("Non-regular file found in receiver directory, expected only regular files!");
+        std::filesystem::path entry_path;
+        bool file_found = false;
 
-            std::filesystem::path processing = processing_dir / entry.path().filename();
-            std::vector<std::filesystem::path> created_paths;
-            bool error_occurred = false;
-            try {
-                // atomic claim
-                std::filesystem::copy_file(entry.path(), processing, std::filesystem::copy_options::overwrite_existing);
-                std::filesystem::remove(entry.path());
+        //Locate update tarball
+        try {
+            for (auto& entry : std::filesystem::directory_iterator(this->receiver_vol)) {
+                if (entry.is_regular_file()) {
+                    entry_path = entry.path();
+                    file_found = true;
+                    break; 
+                } else {
+                    spdlog::warn("[STORE] Skipping non-regular file: {}", entry.path().string());
+                }
+            }
+        } catch (const std::exception& e) {
+            spdlog::error("[STORE] Error accessing receiver directory: {}", e.what());
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            continue;
+        }
 
-                spdlog::info("[STORE] captured new file {}, beging processing", processing.string());
+        if (!file_found) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
 
-                TarExtractor extractor(processing);
-                json manifest = extractor.get_manifest();
-                spdlog::info("[STORE] manifest.json extracted successfully");
+        std::filesystem::path processing_file = processing_dir / entry_path.filename();
 
-                std::vector<json> package_vector = manifest.at("Packages").get<std::vector<json>>();
-                RecipeMaker maker(manifest);
+        try {
 
-                for(const auto& package : package_vector){
+            std::filesystem::copy_file(entry_path, processing_file, std::filesystem::copy_options::overwrite_existing);
+            std::filesystem::remove(entry_path);
+
+            spdlog::info("[STORE] Captured file {}, extracting...", processing_file.string());
+
+            TarExtractor extractor(processing_file);
+            json manifest = extractor.get_manifest();
+            
+            std::vector<json> package_vector = manifest.at("Packages").get<std::vector<json>>();
+            RecipeMaker maker(manifest);
+
+            // process packages loop
+            for (const auto& package : package_vector) {
+                std::filesystem::path f_path_fs;
+                
+                try {
                     std::string path = package.at("Store_Path").get<std::string>();
-                    std::filesystem::path f_path_fs = this->store_vol / path;
+                    f_path_fs = this->store_vol / path;
 
-                    if (std::filesystem::exists(f_path_fs)){
-                        spdlog::info("[STORE] path {} already exists", f_path_fs.string());
+                    // If already exists, skip.
+                    if (std::filesystem::exists(f_path_fs)) {
+                        spdlog::info("[STORE] Path {} already exists, skipping.", f_path_fs.string());
                         continue;
                     }
 
                     std::filesystem::create_directories(f_path_fs);
-                    created_paths.push_back(f_path_fs);
-                    std::string filename = package.at("Filename").get<std::string>();
 
+                    std::string filename = package.at("Filename").get<std::string>();
                     std::filesystem::rename(
                         processing_dir / filename, 
                         f_path_fs / filename
                     );
+
                     maker.generate_recipe(f_path_fs, package.at("Type").get<std::string>());
                     
+                    // Commit to DB 
                     auto bson_doc = bsoncxx::from_json(package.dump());
                     this->db.collection.insert_one(bson_doc.view());
 
                     this->update_distributor(package);
                     
-                }
+                    spdlog::info("[STORE] Successfully processed package: {}", filename);
 
-            } catch (const std::exception& e) {
-                
-                spdlog::warn("[STORE] error while processing {}: {}", entry.path().string(), e.what());
-                error_occurred = true;
-            }
-
-            // reset volume
-            try{
-                // cleanup created paths
-                if (error_occurred){                 
-                    for (const auto& p : created_paths) {
-                        std::filesystem::remove_all(p);
+                } catch (const std::exception& e) {
+                    // ERROR HANDLER FOR SINGLE PACKAGE
+                    spdlog::error("[STORE] Failed to process package inside bundle: {}", e.what());
+                    
+                    // Cleanup
+                    if (!f_path_fs.empty() && std::filesystem::exists(f_path_fs)) {
+                        try {
+                            std::filesystem::remove_all(f_path_fs);
+                        } catch(...) { /* ignore cleanup errors */ }
                     }
-                    spdlog::info("[STORE] Cleaned up created paths after error.");
                 }
-
-                created_paths.clear();
-
-                std::filesystem::remove_all(processing_dir);
-                std::filesystem::create_directories(processing_dir);
-
-                error_occurred = false;
-            } catch (const std::filesystem::filesystem_error& e){
-                throw std::filesystem::filesystem_error(
-                    "[STORE] [CRITICAL ERROR] Failed to cleanup Store Volume",
-                    e.path1(),
-                    e.code()
-                );
             }
+
+        } catch (const std::exception& e) {
+            // This catches errors with the Tarball itself (corruption) or the Manifest
+            spdlog::error("[STORE] Critical error processing bundle {}: {}", processing_file.string(), e.what());
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
+        // final cleanup: clear the processing directory 
+        try {
+            std::filesystem::remove_all(processing_dir);
+            std::filesystem::create_directories(processing_dir);
+        } catch (const std::exception& e) {
+             spdlog::error("[STORE] Failed to reset processing directory: {}", e.what());
+        }
     }
 }
 

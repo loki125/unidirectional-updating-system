@@ -58,9 +58,8 @@ public:
         std::string line;
 
         while (std::getline(ss, line)) {
-            if (line.empty() || line[0] == 'd') continue; // Skip directories
+            if (line.empty() || line[0] == 'd') continue; 
             
-            // Parse: "drwxr-xr-x ... ./usr/bin/hello"
             size_t dot_pos = line.find(" ./");
             if (dot_pos == std::string::npos) continue;
 
@@ -68,16 +67,28 @@ public:
             if (!raw.empty() && raw.back() == '\n') raw.pop_back();
 
             std::string src = raw;
-            std::string dst = raw;
+            std::string dst = ""; // Default empty if it's a regular file
 
-            // Handle internal links "bin/sh -> bash"
+            // Check for Symlink Arrow
             size_t arrow = raw.find(" -> ");
             if (arrow != std::string::npos) {
-                src = raw.substr(0, arrow); // Internal file
-                // dst stays the same (the location of the link)
+                src = raw.substr(0, arrow); // The file path
+                dst = raw.substr(arrow + 4); // The target path
+            } else {
+                // For a regular file, src is the path, dst is effectively "self" or same
+                dst = src; 
             }
 
+            // Clean leading slashes/dots
+            if (src.length() > 0 && src[0] == '.') src = src.substr(1);
             if (src.length() > 0 && src[0] == '/') src = src.substr(1);
+            
+            // Clean dst only if it's NOT a relative target 
+            if (arrow == std::string::npos) {
+                 if (dst.length() > 0 && dst[0] == '.') dst = dst.substr(1);
+                 if (dst.length() > 0 && dst[0] == '/') dst = dst.substr(1);
+            }
+
             forest.push_back({ {"src", src}, {"dst", dst} });
         }
         return forest;

@@ -33,7 +33,7 @@ async def create_package(package: Dict):
     
     #broadcast new package logic
     
-    return {"status": "success", "id": str(result["_id"])}
+    return {"status": "success", "hash": str(result["SHA256"])}
     
 @service.get("/pkgs_by_name")
 async def get_packages_by_name(name: str):
