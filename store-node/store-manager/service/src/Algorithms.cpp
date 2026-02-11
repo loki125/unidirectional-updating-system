@@ -215,7 +215,7 @@ void GSO::resolve_circular_dependencies(Graph &graph){
                 if (u == v) break;
             }
             if(component.size() == 1)
-                throw std::runtime_error("[GSO] self pointing SCC detected. invalid");
+                spdlog::warn("[GSO] self pointing SCC detected. invalid ID: {}", component[0]);
 
             else if (component.size() == 2) {
                 std::size_t nodeA = component[0], nodeB = component[1]; 
@@ -282,7 +282,7 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::str
 
     // Calculate Recursive Mounts
     json mount_instr = calculate_mounts(pkg_name, pkg_version);
-    recipe["mount_instructions"] = mount_instr;
+    recipe["mount_instructions"] = mount_instr["required_mounts"].empty() ? json::array() : mount_instr;
 
     // Get Files & Scripts
     recipe["symlink_forest"] = reader->get_files(pkg_path.string());
@@ -294,7 +294,7 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::str
     out << recipe.dump(4);
     out.close();
 
-    spdlog::info("Recipe generated: \n{}", recipe.dump(4));
+    spdlog::info("Recipe generated successfully at {}", recipe_out.string());
 }
 
 
