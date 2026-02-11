@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <optional>
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 
@@ -37,6 +38,7 @@ struct Package {
         name = package_json.at("Package").get<std::string>();
         version = package_json.at("Version").get<std::string>();
     }
+    Package(const std::string& name, const std::string& version) : name(name), version(version) {}
     Package() = default;
 
     bool operator==(const Package& other) const {
@@ -55,13 +57,15 @@ struct PackageHash {
 class PackageGraph {
 public:
     explicit PackageGraph(const std::vector<Package>& packages);
-    explicit PackageGraph(int size) : graph_(size) {}
+    explicit PackageGraph(std::size_t size) : graph_(size) {}
 
     const Graph& graph() const;
 
     Graph& graph();
 
-    const Package& get_package(int id) const; 
+    const Package& get_package(std::size_t id) const;
+
+    std::optional<std::size_t> get_id(const Package& pkg) const;
 
     void add_depend(const Package& pkg);
 
@@ -69,7 +73,7 @@ private:
     Graph graph_;
     
     std::vector<Package> id_to_pkg;
-    std::unordered_map<Package, int, PackageHash> pkg_to_id;
+    std::unordered_map<Package, std::size_t, PackageHash> pkg_to_id;
 
-    int add_pkg(const Package& pkg);
+    std::size_t add_pkg(const Package& pkg);
 };

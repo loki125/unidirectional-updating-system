@@ -5,33 +5,48 @@
 #include <functional>
 #include <spdlog/spdlog.h> 
 
-std::vector<json> GSO::sort(const json &manifest_json)
-{  
-    if (manifest_json.is_null())
-        throw std::runtime_error("Failed to extract manifest.json");
+GSO::GSO(const std::vector<json>& packages) : pgraph(graph_builder(packages)){  
 
-    PackageGraph pgraph = graph_builder(manifest_json);
     Graph& graph = pgraph.graph();
 
     //Detect and Break Cycles
     resolve_circular_dependencies(graph);
-    std::vector<int> sorted_vector = sort_algo(graph);
+    std::vector<std::size_t> sorted_vector = sort_algo(graph);
 
-    return phrase_sorted_vector(pgraph, sorted_vector);
+    this->sorted_pkgs = phrase_sorted_vector(pgraph, sorted_vector);
 }
 
-std::unordered_map<std::string, int> GSO::get_global_priority_map(const std::vector<json>& sorted_pkgs) {
-    std::unordered_map<std::string, int> map;
-    for (size_t i = 0; i < sorted_pkgs.size(); ++i) {
-        std::string name = sorted_pkgs[i]["Package"];
-        map[name] = static_cast<int>(i);
+std::vector<json> GSO::subgraph_order(const std::string& name, const std::string& version){
+    // extract subgraph from the point of pkg
+    // then see all packages it that sub graph and make a new sorted vector that consists only of the packages in the subgraph
+    if(sorted_pkgs.empty())
+        throw std::runtime_error("sorted vector not initialized");
+
+    json main_pkg;
+    Package pkg(name, version);
+
+    std::optional<std::size_t> pkg_place = this->pgraph.get_id(pkg);
+    if (!pkg_place.has_value()) 
+        throw std::runtime_error("Package not found in GSO");
+    
+
+    std::unordered_set<std::size_t> descendants = get_descendants(this->pgraph.graph(), pkg_place.value());
+    std::vector<json> subgraph_vector;
+
+    for (const auto& pkg_json : this->sorted_pkgs) {
+        Package p(pkg_json);
+        auto id = pgraph.get_id(p);
+        if (id && descendants.find(*id) != descendants.end())
+            subgraph_vector.push_back(pkg_json);
     }
-    return map;
+
+    return subgraph_vector;
 }
 
-PackageGraph GSO::graph_builder(const json &manifest_json)
+PackageGraph GSO::graph_builder(const std::vector<json>& pkg_list)
 {
-    const std::vector<json>& pkg_list = manifest_json.at("Packages").get<std::vector<json>>();
+    if (pkg_list.empty())
+        throw std::runtime_error("Failed to extract packages");
 
     PackageGraph pgraph(pkg_list.size());
 
@@ -55,7 +70,7 @@ PackageGraph GSO::graph_builder(const json &manifest_json)
     return pgraph;
 }
 
-std::vector<int> GSO::sort_algo(const Graph &graph){
+std::vector<std::size_t> GSO::sort_algo(const Graph &graph){
     /*
     Reverse Topological Sort Algorithm Explanation:
     1. create G' as G reversed
@@ -75,7 +90,7 @@ std::vector<int> GSO::sort_algo(const Graph &graph){
     std::size_t n = graph.size();
     
     Graph graph_rev(n); // This is G'
-    std::vector<int> out_degree_g(n, 0); // Represents dependency count
+    std::vector<std::size_t> out_degree_g(n, 0); // Represents dependency count
 
     for (std::size_t u = 0; u < n; ++u) {
         const auto& neighbors = graph.neighbors(u);
@@ -89,13 +104,13 @@ std::vector<int> GSO::sort_algo(const Graph &graph){
     }
 
     std::queue<std::size_t> q;
-    std::vector<int> result; // The list
+    std::vector<std::size_t> result; // The list
 
     //insert all leafs (0 out-degree) into the queue
     for (std::size_t i = 0; i < n; ++i) {
         if (out_degree_g[i] == 0) {
             q.push(i);
-            result.push_back(static_cast<int>(i));
+            result.push_back(i);
         }
     }
 
@@ -110,7 +125,7 @@ std::vector<int> GSO::sort_algo(const Graph &graph){
 
             if (out_degree_g[neighbor] == 0) {
                 // "If all neighbors in list then add him"
-                result.push_back(static_cast<int>(neighbor));
+                result.push_back(neighbor);
                 
                 // Add to queue to "go up to the next level"
                 q.push(neighbor);
@@ -121,6 +136,31 @@ std::vector<int> GSO::sort_algo(const Graph &graph){
 
     if (result.size() != n) 
         throw std::runtime_error("Circular dependency detected"); // circular dependency detected
+
+    return result;
+}
+
+std::unordered_set<std::size_t> GSO::get_descendants(const Graph &g, std::size_t start)
+{
+    std::unordered_set<std::size_t> result;
+    std::vector<bool> visited(g.size(), false);
+    std::stack<std::size_t> st;
+
+    st.push(start);
+    visited[start] = true;
+
+    while (!st.empty()) {
+        auto node = st.top();
+        st.pop();
+
+        for (auto n : g.neighbors(node)) {
+            if (!visited[n]) {
+                visited[n] = true;
+                result.insert(n);   // collect descendant
+                st.push(n);
+            }
+        }
+    }
 
     return result;
 }
@@ -144,29 +184,27 @@ void GSO::resolve_circular_dependencies(Graph &graph){
     std::vector<int> low(n, -1);  // Low link value
     std::vector<bool> stackMember(n, false);
     std::stack<std::size_t> st;
-    int timer = 0;
+    std::size_t timer = 0;
 
     // store edges to remove 
     std::vector<std::pair<std::size_t, std::size_t>> edges_to_cut;
 
     // DFS Lambda
-    std::function<void(std::size_t)> SCC_DFS = [&](std::size_t u) {
+    auto SCC_DFS = [&](auto&& self, std::size_t u) -> void {
         disc[u] = low[u] = ++timer;
         st.push(u);
         stackMember[u] = true;
 
         for (std::size_t v : graph.neighbors(u)) {
             if (disc[v] == -1) {
-                // If v is not visited, recurse
-                SCC_DFS(v);
+                self(self, v);                     // ← recursion HERE
                 low[u] = std::min(low[u], low[v]);
             } else if (stackMember[v]) {
-                // If v is in stack, it's a back-edge (part of SCC)
                 low[u] = std::min(low[u], disc[v]);
             }
         }
 
-        // If u is the head of an SCC
+        // root of SCC
         if (low[u] == disc[u]) {
             std::vector<std::size_t> component;
             while (true) {
@@ -176,23 +214,25 @@ void GSO::resolve_circular_dependencies(Graph &graph){
                 component.push_back(v);
                 if (u == v) break;
             }
+            if(component.size() == 1)
+                throw std::runtime_error("[GSO] self pointing SCC detected. invalid");
 
-            // detection
-            if (component.size() == 2) {
-                std::size_t nodeA = component[0], nodeB = component[1];
-
-                spdlog::warn("[Cycle Breaker] Size 2 Cycle Detected: ID {} <--> ID {}", nodeA, nodeB);
+            else if (component.size() == 2) {
+                std::size_t nodeA = component[0], nodeB = component[1]; 
+                
+                spdlog::warn("[Cycle Breaker] Size 2 Cycle Detected: ID {} <--> ID {}", nodeA, nodeB); 
                 edges_to_cut.push_back({nodeA, nodeB});
             }
-            else if (component.size() > 2) 
-                throw std::runtime_error("[GSO] [Cycle Breaker] Complex Cycle Detected");
+            else if (component.size() > 2) {
+                throw std::runtime_error("[GSO] Complex Cycle Detected");
+            }
         }
     };
 
     // handles disconnected graphs
     for (std::size_t i = 0; i < n; i++) {
         if (disc[i] == -1) {
-            SCC_DFS(i);
+            SCC_DFS(SCC_DFS, i);
         }
     }
 
@@ -203,7 +243,7 @@ void GSO::resolve_circular_dependencies(Graph &graph){
 
 }
 
-std::vector<json> GSO::phrase_sorted_vector(const PackageGraph &pgraph, const std::vector<int> &sorted_vector)
+std::vector<json> GSO::phrase_sorted_vector(const PackageGraph &pgraph, const std::vector<std::size_t> &sorted_vector)
 {
     std::vector<json> sorted_packages;
     for (const auto& index : sorted_vector) {
@@ -221,20 +261,11 @@ this is just so i know where the implementation of GSO ends and RecipeMaker star
 
 */
 
-RecipeMaker::RecipeMaker(const json& manifest) : global_manifest(manifest) {
-    if (!manifest.contains("Packages")) 
-        throw std::runtime_error("Invalid Manifest");
+RecipeMaker::RecipeMaker(const json& manifest) : 
 
-    // Calculate Global Sort Order (GSO)
-    std::vector<json> sorted_pkgs = GSO::sort(manifest);
-    priority_map = GSO::get_global_priority_map(sorted_pkgs);
-
-    // Build Lookup Table
-    for (const auto& pkg : manifest["Packages"]) {
-        std::string name = pkg["Package"];
-        pkg_lookup[name] = pkg;
-    }
-}
+packages(manifest["Packages"].get<std::vector<json>>()), 
+global_sort(GSO(this->packages))
+{}
 
 void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::string& type) {
 
@@ -243,33 +274,14 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::str
 
     // Extract Info using the Reader
     std::string pkg_name = reader->get_name(pkg_path.string());
-    
-    // Verify existence in global manifest
-    if (pkg_lookup.find(pkg_name) == pkg_lookup.end()) {
-        throw std::runtime_error("Package '" + pkg_name + "' not found in Global Manifest");
-    }
-
-    json my_meta = pkg_lookup[pkg_name];
+    std::string pkg_version = reader->get_version(pkg_path.string());
     json recipe;
     
     recipe["package_name"] = pkg_name;
-    recipe["version"] = reader->get_version(pkg_path.string());
-
-    // Flatten Dependencies
-    std::vector<std::string> flat_deps;
-    if (my_meta.contains("Dependencies")) {
-        for (const auto& group : my_meta["Dependencies"]) {
-            if (!group.empty()) {
-                std::string raw = group[0];
-                std::string clean = raw.substr(0, raw.find(' '));
-                flat_deps.push_back(clean);
-            }
-        }
-    }
-    recipe["dependencies"] = flat_deps;
+    recipe["version"] = pkg_version;
 
     // Calculate Recursive Mounts
-    json mount_instr = calculate_mounts(pkg_name, flat_deps);
+    json mount_instr = calculate_mounts(pkg_name, pkg_version);
     recipe["mount_instructions"] = mount_instr;
 
     // Get Files & Scripts
@@ -286,46 +298,13 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::str
 }
 
 
-json RecipeMaker::calculate_mounts(const std::string& my_name, const std::vector<std::string>& direct_deps) {
-    std::set<std::string> recursive_deps;
-    std::vector<std::string> q = direct_deps;
-    size_t head = 0;
-
-    // BFS
-    while(head < q.size()){
-        std::string curr = q[head++];
-        if (recursive_deps.count(curr)) continue;
-        recursive_deps.insert(curr);
-
-        if (pkg_lookup.count(curr)) {
-            for(const auto& g : pkg_lookup[curr]["Dependencies"]){
-                if(!g.empty()) {
-                    std::string raw = g[0];
-                    std::string clean = raw.substr(0, raw.find(' '));
-                    q.push_back(clean);
-                }
-            }
-        }
-    }
-
-    std::vector<std::string> sorted_mounts(recursive_deps.begin(), recursive_deps.end());
+json RecipeMaker::calculate_mounts(const std::string& pkg_name, const std::string& pkg_version) {
     
-    // Sort by Priority
-    std::sort(sorted_mounts.begin(), sorted_mounts.end(), 
-        [&](const std::string& a, const std::string& b) {
-            return priority_map[a] < priority_map[b];
-        }
-    );
-
     json required_mounts = json::array();
-    for(const auto& pkg : sorted_mounts) {
-        if (pkg_lookup.count(pkg) && pkg_lookup[pkg].contains("Store_Path")) {
-            required_mounts.push_back(pkg_lookup[pkg]["Store_Path"]);
-        }
-    }
-
+    for(const auto& pkg : this->global_sort.subgraph_order(pkg_name, pkg_version))
+        required_mounts.push_back(pkg["Store_Path"]);
+        
     json instr;
-    instr["lowerdir_priority"] = priority_map[my_name];
     instr["required_mounts"] = required_mounts;
     return instr;
 }

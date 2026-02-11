@@ -47,24 +47,30 @@ PackageGraph::PackageGraph(const std::vector<Package>& packages)
     
 }
 
-const Package &PackageGraph::get_package(int id) const
+const Package &PackageGraph::get_package(std::size_t id) const
 {
     return this->id_to_pkg[id];
 }
 
+std::optional<std::size_t> PackageGraph::get_id(const Package& pkg) const{
+    if (auto it = pkg_to_id.find(pkg); it != pkg_to_id.end())
+        return it->second;
+    return std::nullopt;
+}
+
 void PackageGraph::add_depend(const Package &pkg)
 {
-    int pkg_id = this->add_pkg(pkg);
+    std::size_t pkg_id = this->add_pkg(pkg);
     
     for( const auto& depend : pkg.dependencies){
-        int depend_id = this->add_pkg(depend);
+        std::size_t depend_id = this->add_pkg(depend);
 
         // Add the edge
         graph_.add_edge(pkg_id, depend_id);
     }
 }
 
-int PackageGraph::add_pkg(const Package& pkg){
+std::size_t PackageGraph::add_pkg(const Package& pkg){
     auto it = pkg_to_id.find(pkg);
 
     if (it == pkg_to_id.end()) {

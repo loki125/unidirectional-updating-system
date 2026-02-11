@@ -6,8 +6,9 @@
 #include <vector>
 #include <string>
 #include <cstdlib>
-#include <unordered_map>
+#include <unordered_set>
 #include <set>
+#include <stack>
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
@@ -19,27 +20,35 @@ using json = nlohmann::json;
 //Global Sort Order
 class GSO {
 private:
-    static PackageGraph graph_builder(const json& manifest_json);
+    static PackageGraph graph_builder(const std::vector<json>& pkg_list);
 
-    static std::vector<int> sort_algo(const Graph& graph);
+    static std::vector<std::size_t> sort_algo(const Graph& graph);
+
+    static std::unordered_set<std::size_t> get_descendants(const Graph& g, std::size_t start);
 
     static void resolve_circular_dependencies(Graph &graph);
 
-    static std::vector<json> phrase_sorted_vector(const PackageGraph& pgraph, const std::vector<int>& sorted_vector); 
+    static std::vector<json> phrase_sorted_vector(const PackageGraph& pgraph, const std::vector<std::size_t>& sorted_vector); 
+
+    PackageGraph pgraph;
+
+    std::vector<json> sorted_pkgs;
     
 public:
-    static std::vector<json> sort(const json &manifest_json); 
+    GSO(const std::vector<json>& packages);
 
-    static std::unordered_map<std::string, int> get_global_priority_map(const std::vector<json>& sorted_pkgs);
+    std::vector<json> subgraph_order(const std::string& name, const std::string& version);
+
+    ~GSO() = default;
+
 };
 
 
 
 class RecipeMaker {
 private:
-    json global_manifest;
-    std::unordered_map<std::string, int> priority_map;
-    std::unordered_map<std::string, json> pkg_lookup;
+    std::vector<json>  packages;
+    GSO global_sort;
 
 public:
     RecipeMaker(const json& manifest);
@@ -48,5 +57,5 @@ public:
 
 private:
     // Helper to calculate mounts 
-    json calculate_mounts(const std::string& my_name, const std::vector<std::string>& direct_deps);
+    json calculate_mounts(const std::string& pkg_name, const std::string& pkg_version);
 };

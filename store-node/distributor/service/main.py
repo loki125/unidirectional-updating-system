@@ -83,5 +83,5 @@ async def get_package_by_hash(store_path: str):
     return StreamingResponse(
         zip_stream,
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={store_path}.zip"}
+        headers={"Content-Disposition": f"attachment; filename=pkg.zip"}
     )
