@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import os
 import logging
 from flute_broadcast.FluteBroadcast import FluteBroadcast as fb
@@ -6,6 +8,15 @@ from package_engine import ServiceFactory as sf
 from utilitys.PackageMetadata import PackageMetadata
 
 app = FastAPI()
+
+# This serves everything in the /static folder
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def read_index():
+    # This serves the GUI when you visit http://localhost:8000
+    return FileResponse('static/index.html')
+
 service_factory = sf.SearchFactory()
 
 BROADCASTER_HOST = os.getenv("BROADCASTER_HOST", "broadcaster")
@@ -45,7 +56,7 @@ async def test_event():
     print("FINISHED SENDING UPDATE")
 
 @app.post("/update")
-async def test_event(package_name: str, version: str, architecture: str):
+async def broadcast_event(package_name: str, version: str, architecture: str):
     print(f"tying to send update for {package_name}, {version}, {architecture}")
     engine = service_factory.get_engine("Debian")
     metadata : PackageMetadata
@@ -55,7 +66,6 @@ async def test_event(package_name: str, version: str, architecture: str):
 
     async with flute_broadcaster:
         await flute_broadcaster.send_update(file_name, metadata, service_factory, BROADCASTER_VOLUME)
-        pass
         
     print("FINISHED SENDING UPDATE")
 
@@ -67,4 +77,15 @@ async def get_package_metadata(package_name: str, type: str):
     
     if instance is None:
         return {"error": "Package not found"}
+    
     return instance
+
+@app.get("/info")
+async def get_package_info(package_name: str, version: str, architecture: str):
+    engine = service_factory.get_engine("Debian")  # Assuming Debian for now
+    async with engine:
+        info = await engine.get_package_info(package_name, version, architecture)
+    
+    if info is None:
+        return {"error": "Package not found"}
+    return info
