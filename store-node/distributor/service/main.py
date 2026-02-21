@@ -29,8 +29,6 @@ async def create_package(package: Dict):
     if result is None:
         raise HTTPException(status_code=500, detail="Failed to find document")
     
-    pprint.pprint("new package added to db: " + str(result))
-    
     #broadcast new package logic
     
     return {"status": "success", "hash": str(result["SHA256"])}
@@ -42,22 +40,19 @@ async def get_packages_by_name(name: str):
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
-@service.get("/pkgs_by_hash")
+@service.get("/pkgs_by_name_version")
+async def get_packages_by_name_version(name: str, version: str):
+    result = await db.get_pkg_by_name_version(name, version)
+    if not result:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return result
+
+@service.get("/pkg_by_hash")
 async def get_packages_by_hash(hash: str):
     result = await db.get_pkg_by_hash(hash)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
-
-@service.get("/depend")
-async def get_packages_by_depends(depnde_list: List[List[str]]):
-    result : List[Dict]
-    for depend in depnde_list:
-        result.append(await db.get_depend(depend))
-        if not result:
-            raise HTTPException(status_code=404, detail="Package not found")
-    return result
-
 
 @service.get("/download_pkg")
 async def get_package_by_hash(store_path: str):

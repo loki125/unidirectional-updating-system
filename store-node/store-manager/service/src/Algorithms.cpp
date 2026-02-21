@@ -250,7 +250,7 @@ std::vector<json> GSO::phrase_sorted_vector(const PackageGraph &pgraph, const st
         json pkg_json = pgraph.get_package(index).package_json;
         
         sorted_packages.push_back(pkg_json);
-        spdlog::info("\n[GSO] package index {}\nSorted Package: {}\n", index, pkg_json.dump(4));
+        spdlog::info("\n[GSO] package index {}\nSorted Package: {}", index, pkg_json["Filename"].get<std::string>());
     }
     return sorted_packages;
 }
