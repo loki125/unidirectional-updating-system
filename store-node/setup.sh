@@ -20,15 +20,14 @@ else
     echo "[i] Bridge $BRIDGE already exists"
 fi
 
-# Create the TAP interface and attach to Bridge
 if ! ip link show "$TAP_IF" &>/dev/null; then
     echo "[+] Creating TAP interface $TAP_IF..."
     sudo ip tuntap add dev "$TAP_IF" mode tap
-    sudo ip link set "$TAP_IF" master "$BRIDGE"
-    sudo ip link set "$TAP_IF" up
-else
-    echo "[i] TAP $TAP_IF already exists"
 fi
+
+sudo ip link set "$TAP_IF" master "$BRIDGE"
+sudo ip link set "$TAP_IF" up
+echo "[!] TAP $TAP_IF is now UP and attached to $BRIDGE"
 
 #start dhcp server
 if ! pgrep -f "dnsmasq --interface=$BRIDGE" > /dev/null; then

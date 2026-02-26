@@ -3,28 +3,25 @@ from typing import Dict, List, Optional
 
 class PackageDB:
     def __init__(self, uri, name, collection):
-        _client = AsyncIOMotorClient(uri)
-        _db = _client[name]
+        self._client = AsyncIOMotorClient(uri)
+        _db = self._client[name]
         self._collection = _db[collection]
 
+    def close(self):
+        self._client.close()
+
     async def _get_pkgs(self, query: Dict, amount: Optional[int] = None) -> List | None:
-        cursor = self._collection.find(query)
+        cursor = self._collection.find(query, {"_id": 0})
         if amount is not None:
             cursor = cursor.limit(amount)
 
-        packages = []
-        async for doc in cursor:
-            doc.pop("_id", None)
-            packages.append(doc)
-
-        return packages
+        return await cursor.to_list(length=amount)
     
     async def _get_pkg(self, query: Dict) -> Dict | None:
-        package = await self._collection.find_one(query)
+        package = await self._collection.find_one(query, {"_id": 0})
         if not package:
             return None
         
-        package.pop("_id", None)
         return package
     
     async def get_pkg_by_name(self, name : str) -> List | None:

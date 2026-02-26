@@ -207,6 +207,7 @@ class FluteBroadcast:
             # Construct the Manifest
             manifest = UpdateManifest(
                 Update_id=update_metadata.generate_id(),
+                pkgs_type=update_metadata.Type,
                 Format_version=self.version,
                 Timestamp=datetime.now(),
                 Total_size_byte=total_size_byte,

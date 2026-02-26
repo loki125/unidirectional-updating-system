@@ -53,7 +53,7 @@ private:
 public:
     RecipeMaker(const json& manifest);
 
-    void generate_recipe(const fs::path& directory_path, const std::string& type);
+    void generate_recipe(const fs::path& directory_path, PackageReader& reader, const json& forest);
 
 private:
     // Helper to calculate mounts 

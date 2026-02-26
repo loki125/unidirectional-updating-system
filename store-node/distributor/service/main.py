@@ -13,15 +13,23 @@ service = FastAPI()
 STORE = os.getenv("STORE_PATH", "/data/store_volume")
 STORE_MANAGER_UPDATES : str = os.getenv("UPDATE_FILE_REQUEST")
 
-db = PackageDB(
-    uri=os.getenv("DB_HOST", "mongodb://mongo:27017"),
-    name=os.getenv("MONGO_PACKAGES_DB"),
-    collection=os.getenv("MONGO_PACKAGES_COLLECTION")
-)
+db: PackageDB = None 
 
 @service.on_event("startup")
 async def startup_event():
-    print(">>> STARTUP RAN!")
+    global db
+    print(">>> Initializing Database...")
+    db = PackageDB(
+        uri=os.getenv("DB_HOST", "mongodb://mongo:27017"),
+        name=os.getenv("MONGO_PACKAGES_DB"),
+        collection=os.getenv("MONGO_PACKAGES_COLLECTION")
+    )
+    print(">>> DB CONNECTED!")
+
+@service.on_event("shutdown")
+async def shutdown_event():
+    if db:
+        db.close()
     
 @service.post(STORE_MANAGER_UPDATES)
 async def create_package(package: Dict):
@@ -34,29 +42,29 @@ async def create_package(package: Dict):
     return {"status": "success", "hash": str(result["SHA256"])}
     
 @service.get("/pkgs_by_name")
-async def get_packages_by_name(name: str):
-    result = await db.get_pkg(name)
+async def get_packages_by_name(Package: str):
+    result = await db.get_pkg_by_name(Package)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
 @service.get("/pkgs_by_name_version")
-async def get_packages_by_name_version(name: str, version: str):
-    result = await db.get_pkg_by_name_version(name, version)
+async def get_packages_by_name_version(Package: str, Version: str):
+    result = await db.get_pkg_by_name_version(Package, Version)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
 @service.get("/pkg_by_hash")
-async def get_packages_by_hash(hash: str):
-    result = await db.get_pkg_by_hash(hash)
+async def get_packages_by_hash(SHA256: str):
+    result = await db.get_pkg_by_hash(SHA256)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
 @service.get("/download_pkg")
-async def get_package_by_hash(store_path: str):
-    folder_path = os.path.join(STORE, store_path)
+async def get_download_package(Store_path: str):
+    folder_path = os.path.join(STORE, Store_path)
     if not os.path.isdir(folder_path):
         raise HTTPException(status_code=404, detail="Folder not found")
 

@@ -5,6 +5,7 @@ from .PackageMetadata import PackageMetadata
 
 class UpdateManifest(BaseModel):
     update_id: str = Field(alias="Update_id")
+    pkgs_type: str = Field(alias="Type")
     format_version: str = Field(alias="Format_version")
     timestamp: datetime = Field(alias="Timestamp")
     total_size_byte: int = Field(alias="Total_size_byte")

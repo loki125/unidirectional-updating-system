@@ -16,16 +16,25 @@ services:
     volumes:
       - mongo_data:/data/db
     networks:
-      - isolated-net
+      isolated-net:
+        ipv4_address: 192.168.50.5
     command: mongod --wiredTigerCacheSizeGB=0.25 --quiet --logpath /dev/null
     logging:
       driver: "none"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   distributor:
     build: ./distributor
     image: distributor:latest
     container_name: distributor
     restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
     ports:
       - "${DISTRIBUTOR_PORT}:11080"
     volumes:
@@ -42,6 +51,9 @@ services:
     image: store-manager:latest
     container_name: store-manager
     restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
     ports:
       - "${FLUTE_PORT}:${FLUTE_PORT}/udp"
     cap_add:

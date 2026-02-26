@@ -267,14 +267,13 @@ packages(manifest["Packages"].get<std::vector<json>>()),
 global_sort(GSO(this->packages))
 {}
 
-void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::string& type) {
+void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader& reader, const json& forest) {
 
-    auto reader = PackageReader::create(type);
-    fs::path pkg_path = reader->get_pkg_path(directory_path);
+    fs::path pkg_path = reader.get_pkg_path(directory_path);
 
     // Extract Info using the Reader
-    std::string pkg_name = reader->get_name(pkg_path.string());
-    std::string pkg_version = reader->get_version(pkg_path.string());
+    std::string pkg_name = reader.get_name(pkg_path.string());
+    std::string pkg_version = reader.get_version(pkg_path.string());
     json recipe;
     
     recipe["package_name"] = pkg_name;
@@ -284,9 +283,9 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, const std::str
     json mount_instr = calculate_mounts(pkg_name, pkg_version);
     recipe["mount_instructions"] = mount_instr["required_mounts"].empty() ? json::array() : mount_instr;
 
-    // Get Files & Scripts
-    recipe["symlink_forest"] = reader->get_files(pkg_path.string());
-    recipe["scripts"] = reader->get_scripts(pkg_path.string());
+    // Get Scripts
+    recipe.update(forest);
+    recipe["scripts"] = reader.get_scripts(pkg_path.string());
 
     // Write Output
     fs::path recipe_out = directory_path / "recipe.json";
