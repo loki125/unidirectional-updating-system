@@ -102,6 +102,9 @@ int main() {
         if (len > 0) {
             sendto(sock_send, buffer.data(), len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
         }
+
+        std::cout << "Forwarded packet from " << inet_ntoa(src_addr.sin_addr) << ":" << ntohs(src_addr.sin_port) 
+                  << " to " << MCAST_GRP << ":" << MCAST_PORT << std::endl;
     }
 
     return 0;

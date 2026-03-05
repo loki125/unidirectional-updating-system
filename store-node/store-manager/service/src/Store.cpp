@@ -9,6 +9,7 @@ void Store::run()
     std::filesystem::path processing_dir = this->store_vol / PROCESSING_DIR;
     std::filesystem::create_directories(processing_dir);
 
+    spdlog::info("[STORE] Store service started, monitoring for incoming updates...");
     while (true) {
         std::filesystem::path entry_path;
         bool file_found = false;
@@ -53,6 +54,9 @@ void Store::run()
             std::vector<std::string> target_paths;
             RecipeMaker maker(manifest);
 
+            std::unique_ptr<PackageReader> pkg_reader;
+            std::map<std::string, json> forests;
+
             try {
                 for (const auto& package : package_vector) {
                     std::filesystem::path f_path_fs;
@@ -77,7 +81,11 @@ void Store::run()
 
                         spdlog::debug("[STORE] File storage complete for: {}", filename);
 
-                } 
+                }
+
+                pkg_reader = PackageReader::create(type);
+                forests = pkg_reader->generate_forests(target_paths);
+
             } catch (const std::exception& e) {
                 spdlog::error("[STORE] Physical storage failed at package: {}, stopping update processing.\n", target_paths.back(),e.what());
                 for (const auto& [dir_path, package_data] : target_packages) {
@@ -86,12 +94,9 @@ void Store::run()
                     if (!f_path_fs.empty() && std::filesystem::exists(f_path_fs)) 
                         std::filesystem::remove_all(f_path_fs);
                 }
-                    
+                continue;
             }
-            
-            auto pkg_reader = PackageReader::create(type);
-            auto forests = pkg_reader->generate_forests(target_paths);
-
+        
             for (const auto& [dir_path, package_data] : target_packages) {
                 std::filesystem::path file_path = dir_path / package_data.at("Filename").get<std::string>();
 

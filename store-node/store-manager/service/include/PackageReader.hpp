@@ -38,6 +38,10 @@ private:
 
     std::map<std::string, std::string> build_provider_map(const std::vector<std::string>& all_store_paths);
 
+    std::string extract_deb_to_processing(const std::string& deb_path);
+
+    void cleanup_processing_dirs(const std::vector<std::string>& target_packages);
+
 public:
     fs::path get_pkg_path(const fs::path& directory_path) override;
 

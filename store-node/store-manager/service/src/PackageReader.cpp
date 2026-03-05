@@ -7,8 +7,40 @@ std::unique_ptr<PackageReader> PackageReader::create(const std::string& type) {
     throw std::runtime_error("Unsupported package type: " + type);
 }
 
+void DebReader::cleanup_processing_dirs(const std::vector<std::string>& target_packages) {
+    for (const auto& pkg : target_packages) {
+        fs::path pkg_path(pkg);
+        fs::path processing_dir = pkg_path.parent_path() / "processing";
+        
+        if (fs::exists(processing_dir)) {
+            // Recursively deletes the processing directory and all its contents
+            fs::remove_all(processing_dir); 
+        }
+    }
+}
+
+std::string DebReader::extract_deb_to_processing(const std::string& deb_path) {
+    fs::path pkg_path(deb_path);
+    
+    // Create the path: hash_path/processing/
+    fs::path processing_dir = pkg_path.parent_path() / "processing";
+
+    // Only extract if the processing directory doesn't already exist
+    if (!fs::exists(processing_dir)) {
+        fs::create_directories(processing_dir);
+        
+        // Extract the .deb file into the processing directory
+        // using dpkg-deb -x <deb_file> <target_dir>
+        std::string cmd = "dpkg-deb -x " + pkg_path.string() + " " + processing_dir.string();
+        exec_command(cmd);
+    }
+
+    return processing_dir.string();
+}
+
 std::map<std::string, json> DebReader::generate_forests(const std::vector<std::string>& target_packages){
 
+    // build_provider_map will extract packages if they haven't been extracted yet
     const std::map<std::string, std::string>& global_provider_map = build_provider_map(target_packages);
     std::map<std::string, json> results;
 
@@ -16,7 +48,11 @@ std::map<std::string, json> DebReader::generate_forests(const std::vector<std::s
         std::map<std::string, std::string> pkg_forest;
         
         if (fs::exists(pkg)) {
-            for (const auto& entry : fs::recursive_directory_iterator(pkg)) {
+            // Get the processing directory instead of iterating over the .deb file directly
+            std::string processing_dir = extract_deb_to_processing(pkg);
+
+            // Iterate over the EXTRACTED processing directory
+            for (const auto& entry : fs::recursive_directory_iterator(processing_dir)) {
                 if (entry.is_regular_file()) {
                     // Check for NEEDED libraries in the binary
                     std::string cmd = "readelf -d " + entry.path().string() + " 2>/dev/null | grep NEEDED";
@@ -45,7 +81,53 @@ std::map<std::string, json> DebReader::generate_forests(const std::vector<std::s
         };
     }
 
+    //Delete all the extracted processing directories before finishing
+    this->cleanup_processing_dirs(target_packages);
     return results;
+}
+
+// Build a map of every .so and its SONAME to its location in the store
+std::map<std::string, std::string> DebReader::build_provider_map(const std::vector<std::string>& all_store_paths) {
+    std::map<std::string, std::string> provider_map;
+    
+    for (const auto& pkg : all_store_paths) {
+        if (!fs::exists(pkg)) continue;
+        
+        // Extract the package and get the processing directory
+        std::string processing_dir = extract_deb_to_processing(pkg);
+        fs::path proc_dir_path(processing_dir), pkg_path(pkg);
+        
+        // Iterate over the EXTRACTED processing directory
+        for (const auto& entry : fs::recursive_directory_iterator(processing_dir)) {
+            if (entry.is_regular_file() && (entry.path().extension() == ".so" || entry.path().string().find(".so.") != std::string::npos)) {
+                
+                std::string soname = get_elf_tag(entry.path().string(), "SONAME");
+                
+                // If no SONAME, use the filename as the lookup key
+                std::string key = soname.empty() ? entry.path().filename().string() : soname;
+                
+                // skipping "processing" directory in the path to get the correct relative path inside the store
+                fs::path relative_inside_deb = entry.path().lexically_relative(proc_dir_path);
+                fs::path final_path = pkg_path.parent_path() / relative_inside_deb;
+                
+                // Map the library name to the cleaned up path
+                provider_map[key] = final_path.string();
+            }
+        }
+    }
+    return provider_map;
+}
+
+// Helper to extract ELF tags (like SONAME or NEEDED)
+std::string DebReader::get_elf_tag(const std::string& path, const std::string& tag) {
+    std::string cmd = "readelf -d " + path + " 2>/dev/null | grep " + tag;
+    std::string output = exec_command(cmd);
+    std::regex reg("\\[(.*?)\\]");
+    std::smatch match;
+    if (std::regex_search(output, match, reg)) {
+        return match[1].str();
+    }
+    return "";
 }
 
 json DebReader::get_scripts(const std::string &path){
@@ -61,36 +143,6 @@ json DebReader::get_scripts(const std::string &path){
     return scripts;
 }
 
-// Helper to extract ELF tags (like SONAME or NEEDED)
-std::string DebReader::get_elf_tag(const std::string& path, const std::string& tag) {
-    std::string cmd = "readelf -d " + path + " 2>/dev/null | grep " + tag;
-    std::string output = exec_command(cmd);
-    std::regex reg("\\[(.*?)\\]");
-    std::smatch match;
-    if (std::regex_search(output, match, reg)) {
-        return match[1].str();
-    }
-    return "";
-}
-
-// Build a map of every .so and its SONAME to its location in the store
-std::map<std::string, std::string> DebReader::build_provider_map(const std::vector<std::string>& all_store_paths) {
-    std::map<std::string, std::string> provider_map;
-    for (const auto& pkg : all_store_paths) {
-        if (!fs::exists(pkg)) continue;
-        for (const auto& entry : fs::recursive_directory_iterator(pkg)) {
-            if (entry.is_regular_file() && (entry.path().extension() == ".so" || entry.path().string().find(".so.") != std::string::npos)) {
-                
-                std::string soname = get_elf_tag(entry.path().string(), "SONAME");
-                
-                // If no SONAME, use the filename as the lookup key
-                std::string key = soname.empty() ? entry.path().filename().string() : soname;
-                provider_map[key] = entry.path().string();
-            }
-        }
-    }
-    return provider_map;
-}
 
 fs::path DebReader::get_pkg_path(const fs::path &directory_path){
         // Find the package file (agnostic search)
