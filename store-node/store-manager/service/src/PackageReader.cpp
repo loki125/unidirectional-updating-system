@@ -106,9 +106,11 @@ std::map<std::string, std::string> DebReader::build_provider_map(const std::vect
                 // If no SONAME, use the filename as the lookup key
                 std::string key = soname.empty() ? entry.path().filename().string() : soname;
                 
-                // skipping "processing" directory in the path to get the correct relative path inside the store
+                // skipping "processing" and volume directories in the path to get the correct relative path inside the store
                 fs::path relative_inside_deb = entry.path().lexically_relative(proc_dir_path);
-                fs::path final_path = pkg_path.parent_path() / relative_inside_deb;
+                fs::path hash_name = proc_dir_path.parent_path().filename();
+
+                fs::path final_path = hash_name / relative_inside_deb;
                 
                 // Map the library name to the cleaned up path
                 provider_map[key] = final_path.string();
