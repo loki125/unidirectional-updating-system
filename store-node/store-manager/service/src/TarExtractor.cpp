@@ -25,7 +25,7 @@ TarExtractor::TarExtractor(const fs::path& tar_path)
         std::string filename = fs::path(pathname).filename().string();
 
         // get manifest.json
-        if (filename == "manifest.json") {
+        if (filename == manifest::FILENAME) {
             std::string buffer;
             buffer.resize(archive_entry_size(entry));
 
@@ -63,7 +63,7 @@ TarExtractor::TarExtractor(const fs::path& tar_path)
     archive_read_free(in);
 
     if (manifest_.is_null()) {
-        throw std::runtime_error("manifest.json not found in tar");
+        throw std::runtime_error(manifest::FILENAME + std::string(" not found in tar"));
     }
 }
 

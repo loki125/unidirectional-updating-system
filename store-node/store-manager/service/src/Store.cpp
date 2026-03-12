@@ -1,22 +1,20 @@
 #include "Store.hpp"
 #include <spdlog/spdlog.h> 
 
-#include "utils.hpp"
-
 void Store::run()
 {
     // Ensure processing directory exists
-    std::filesystem::path processing_dir = this->store_vol / PROCESSING_DIR;
-    std::filesystem::create_directories(processing_dir);
+    fs::path processing_dir = this->store_vol / PROCESSING_DIR;
+    fs::create_directories(processing_dir);
 
     spdlog::info("[STORE] Store service started, monitoring for incoming updates...");
     while (true) {
-        std::filesystem::path entry_path;
+        fs::path entry_path;
         bool file_found = false;
 
         //Locate update tarball
         try {
-            for (auto& entry : std::filesystem::directory_iterator(this->receiver_vol)) {
+            for (auto& entry : fs::directory_iterator(this->receiver_vol)) {
                 if (entry.is_regular_file()) {
                     entry_path = entry.path();
                     file_found = true;
@@ -36,44 +34,44 @@ void Store::run()
             continue;
         }
 
-        std::filesystem::path processing_file = processing_dir / entry_path.filename();
+        fs::path processing_file = processing_dir / entry_path.filename();
 
         try {
-            std::filesystem::copy_file(entry_path, processing_file, std::filesystem::copy_options::overwrite_existing);
-            std::filesystem::remove(entry_path);
+            fs::copy_file(entry_path, processing_file, fs::copy_options::overwrite_existing);
+            fs::remove(entry_path);
 
             spdlog::info("[STORE] Captured file {}, extracting...", processing_file.string());
 
             TarExtractor extractor(processing_file);
             json manifest = extractor.get_manifest();
             
-            std::vector<json> package_vector = manifest.at("Packages").get<std::vector<json>>();
-            std::string type = manifest.at("Type").get<std::string>();
+            std::vector<json> package_vector = manifest.at(manifest::PACKAGES).get<std::vector<json>>();
+            std::string type = manifest.at(manifest::TYPE).get<std::string>();
 
-            std::vector<std::pair<std::filesystem::path, json>> target_packages;
+            std::vector<std::pair<fs::path, json>> target_packages;
             std::vector<std::string> target_paths;
             RecipeMaker maker(manifest);
 
             std::unique_ptr<PackageReader> pkg_reader;
-            std::map<std::string, json> forests;
+            forest_map forests;
 
             try {
                 for (const auto& package : package_vector) {
-                    std::filesystem::path f_path_fs;
-                        std::string path = package.at("Store_Path").get<std::string>();
+                    fs::path f_path_fs;
+                        std::string path = package.at(pkg::PATH).get<std::string>();
                         f_path_fs = this->store_vol / path;
 
-                        if (std::filesystem::exists(f_path_fs)) {
+                        if (fs::exists(f_path_fs)) {
                             spdlog::info("[STORE] Path {} already exists, skipping.", f_path_fs.string());
                             continue;
                         }
 
-                        std::filesystem::create_directories(f_path_fs);
+                        fs::create_directories(f_path_fs);
 
-                        std::string filename = package.at("Filename").get<std::string>();
-                        std::filesystem::path source_path = f_path_fs / filename;
+                        std::string filename = package.at(pkg::FILENAME).get<std::string>();
+                        fs::path source_path = f_path_fs / filename;
 
-                        std::filesystem::rename(processing_dir / filename, source_path);
+                        fs::rename(processing_dir / filename, source_path);
                         
                         // Add to the list for the next phase
                         target_packages.push_back({f_path_fs, package});
@@ -84,21 +82,21 @@ void Store::run()
                 }
 
                 pkg_reader = PackageReader::create(type);
-                forests = pkg_reader->generate_forests(target_paths);
+                forests = pkg_reader->generate_forests(target_paths, maker.get_global_sort());
 
             } catch (const std::exception& e) {
                 spdlog::error("[STORE] Physical storage failed at package: {}, stopping update processing.\n", target_paths.back(),e.what());
                 for (const auto& [dir_path, package_data] : target_packages) {
-                    std::filesystem::path f_path_fs = dir_path / package_data.at("Filename").get<std::string>();
+                    fs::path f_path_fs = dir_path / package_data.at(pkg::FILENAME).get<std::string>();
 
-                    if (!f_path_fs.empty() && std::filesystem::exists(f_path_fs)) 
-                        std::filesystem::remove_all(f_path_fs);
+                    if (!f_path_fs.empty() && fs::exists(f_path_fs)) 
+                        fs::remove_all(f_path_fs);
                 }
                 continue;
             }
         
             for (const auto& [dir_path, package_data] : target_packages) {
-                std::filesystem::path file_path = dir_path / package_data.at("Filename").get<std::string>();
+                fs::path file_path = dir_path / package_data.at(pkg::FILENAME).get<std::string>();
 
                 try {
                     // Generate the recipe file in the store
@@ -115,8 +113,8 @@ void Store::run()
 
                 } catch (const std::exception& e) {
                     spdlog::error("[STORE] Metadata/Distributor update failed for {}: {}", file_path.string(), e.what());
-                    if (!file_path.empty() && std::filesystem::exists(file_path)) {
-                        std::filesystem::remove_all(file_path);
+                    if (!file_path.empty() && fs::exists(file_path)) {
+                        fs::remove_all(file_path);
                     }
                     
                 }
@@ -128,8 +126,8 @@ void Store::run()
 
         // final cleanup: clear the processing directory 
         try {
-            std::filesystem::remove_all(processing_dir);
-            std::filesystem::create_directories(processing_dir);
+            fs::remove_all(processing_dir);
+            fs::create_directories(processing_dir);
         } catch (const std::exception& e) {
             spdlog::error("[STORE] Failed to reset processing directory: {}", e.what());
         }
@@ -139,7 +137,7 @@ void Store::run()
 Store::Store() : db(set_env_var("MONGO_URI"), set_env_var("MONGO_PACKAGES_DB"), set_env_var("MONGO_PACKAGES_COLLECTION"))
 {
     this->store_vol = set_env_var("STORE_PATH");
-    std::filesystem::path output_path = set_env_var("OUTPUT_PATH");
+    fs::path output_path = set_env_var("OUTPUT_PATH");
 
     this->receiver_vol = output_path / READY_PATH;
 

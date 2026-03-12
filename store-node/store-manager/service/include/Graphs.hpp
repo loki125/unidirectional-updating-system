@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 
-using json = nlohmann::json;
+#include "utils.hpp"
 
 class Graph {
 public:
@@ -35,8 +35,8 @@ struct Package {
     Package(const json pkg_json) {
         package_json = pkg_json;
 
-        name = package_json.at("Package").get<std::string>();
-        version = package_json.at("Version").get<std::string>();
+        name = package_json.at(pkg::NAME).get<std::string>();
+        version = package_json.at(pkg::VERSION).get<std::string>();
     }
     Package(const std::string& name, const std::string& version) : name(name), version(version) {}
     Package() = default;

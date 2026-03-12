@@ -10,7 +10,7 @@ std::unique_ptr<PackageReader> PackageReader::create(const std::string& type) {
 void DebReader::cleanup_processing_dirs(const std::vector<std::string>& target_packages) {
     for (const auto& pkg : target_packages) {
         fs::path pkg_path(pkg);
-        fs::path processing_dir = pkg_path.parent_path() / "processing";
+        fs::path processing_dir = pkg_path.parent_path() / PROCESSING_DIR;
         
         if (fs::exists(processing_dir)) {
             // Recursively deletes the processing directory and all its contents
@@ -19,11 +19,9 @@ void DebReader::cleanup_processing_dirs(const std::vector<std::string>& target_p
     }
 }
 
-std::string DebReader::extract_deb_to_processing(const std::string& deb_path) {
-    fs::path pkg_path(deb_path);
-    
+std::string DebReader::extract_deb_to_processing(const fs::path& deb_path) {
     // Create the path: hash_path/processing/
-    fs::path processing_dir = pkg_path.parent_path() / "processing";
+    fs::path processing_dir = deb_path.parent_path() / PROCESSING_DIR;
 
     // Only extract if the processing directory doesn't already exist
     if (!fs::exists(processing_dir)) {
@@ -31,43 +29,54 @@ std::string DebReader::extract_deb_to_processing(const std::string& deb_path) {
         
         // Extract the .deb file into the processing directory
         // using dpkg-deb -x <deb_file> <target_dir>
-        std::string cmd = "dpkg-deb -x " + pkg_path.string() + " " + processing_dir.string();
+        std::string cmd = "dpkg-deb -x " + deb_path.string() + " " + processing_dir.string();
         exec_command(cmd);
     }
 
     return processing_dir.string();
 }
 
-std::map<std::string, json> DebReader::generate_forests(const std::vector<std::string>& target_packages){
+forest_map DebReader::generate_forests(const std::vector<std::string>& target_packages, const GSO& global_sort) {
 
     // build_provider_map will extract packages if they haven't been extracted yet
     const std::map<std::string, std::string>& global_provider_map = build_provider_map(target_packages);
-    std::map<std::string, json> results;
+    forest_map results;
 
-    for (const auto& pkg : target_packages) {
+    const std::vector<json>& sorted_pkgs = global_sort.get_sorted_pkgs();
+    for (const auto& pkg : sorted_pkgs) {
         std::map<std::string, std::string> pkg_forest;
+        fs::path target_path = pkg[pkg::PATH].get<fs::path>();
+        fs::path deb_path = target_path / pkg[pkg::FILENAME].get<std::string>();
         
-        if (fs::exists(pkg)) {
+        if (fs::exists(deb_path)) {
             // Get the processing directory instead of iterating over the .deb file directly
-            std::string processing_dir = extract_deb_to_processing(pkg);
+            std::string processing_dir = extract_deb_to_processing(deb_path);
 
             // Iterate over the EXTRACTED processing directory
             for (const auto& entry : fs::recursive_directory_iterator(processing_dir)) {
                 if (entry.is_regular_file()) {
                     // Check for NEEDED libraries in the binary
-                    std::string cmd = "readelf -d " + entry.path().string() + " 2>/dev/null | grep NEEDED";
-                    std::string needed_libs_raw = exec_command(cmd);
-                    
-                    if (!needed_libs_raw.empty()) {
-                        std::regex lib_regex("\\[(.*?)\\]");
-                        auto words_begin = std::sregex_iterator(needed_libs_raw.begin(), needed_libs_raw.end(), lib_regex);
-                        auto words_end = std::sregex_iterator();
+                    auto needed_libs = get_elf_tags(entry.path().string(), "NEEDED");
 
-                        for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
-                            std::string lib_needed = (*i)[1].str();
-                            
+                    if (!needed_libs.empty()) {
+                        // Identify which known providers offer these libraries
+                        for (const auto& lib_needed : needed_libs) {
                             if (global_provider_map.count(lib_needed)) {
                                 pkg_forest[lib_needed] = global_provider_map.at(lib_needed);
+                            }
+                        }
+
+                        const auto name = pkg[pkg::NAME].get<std::string>();
+                        const auto version = pkg[pkg::VERSION].get<std::string>();
+                        
+                        for (const json& dec_pkg : global_sort.subgraph_order(name, version)) {
+                            std::string dec_path = dec_pkg[pkg::PATH].get<std::string>();
+                            if (dec_path == target_path) continue; // skip self
+                            
+                            // Update forest with results from the descendant path
+                            for(auto& [lib, provider]: results[dec_path]) {
+                                if (pkg_forest.count(lib) == 0) // only add if not already present to preserve closest provider
+                                    pkg_forest[lib] = provider;
                             }
                         }
                     }
@@ -76,9 +85,7 @@ std::map<std::string, json> DebReader::generate_forests(const std::vector<std::s
         }
 
         // Return a JSON object for this package containing the "symlink_forest" key
-        results[pkg] = json{
-            {"symlink_forest", pkg_forest}
-        };
+        results[target_path] = pkg_forest;
     }
 
     //Delete all the extracted processing directories before finishing
@@ -101,8 +108,9 @@ std::map<std::string, std::string> DebReader::build_provider_map(const std::vect
         for (const auto& entry : fs::recursive_directory_iterator(processing_dir)) {
             if (entry.is_regular_file() && (entry.path().extension() == ".so" || entry.path().string().find(".so.") != std::string::npos)) {
                 
-                std::string soname = get_elf_tag(entry.path().string(), "SONAME");
-                
+                std::vector<std::string> sonames = this->get_elf_tags(entry.path().string(), "SONAME");
+                std::string soname = sonames.empty() ? "" : sonames[0];
+
                 // If no SONAME, use the filename as the lookup key
                 std::string key = soname.empty() ? entry.path().filename().string() : soname;
                 
@@ -121,15 +129,22 @@ std::map<std::string, std::string> DebReader::build_provider_map(const std::vect
 }
 
 // Helper to extract ELF tags (like SONAME or NEEDED)
-std::string DebReader::get_elf_tag(const std::string& path, const std::string& tag) {
+std::vector<std::string> DebReader::get_elf_tags(const std::string& path, const std::string& tag) {
     std::string cmd = "readelf -d " + path + " 2>/dev/null | grep " + tag;
     std::string output = exec_command(cmd);
-    std::regex reg("\\[(.*?)\\]");
-    std::smatch match;
-    if (std::regex_search(output, match, reg)) {
-        return match[1].str();
+    
+    std::vector<std::string> results;
+    static std::regex reg("\\[(.*?)\\]");
+    
+    // Use iterator to find all matches
+    auto words_begin = std::sregex_iterator(output.begin(), output.end(), reg);
+    auto words_end = std::sregex_iterator();
+
+    for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
+        results.push_back((*i)[1].str());
     }
-    return "";
+    
+    return results;
 }
 
 json DebReader::get_scripts(const std::string &path){
@@ -137,11 +152,11 @@ json DebReader::get_scripts(const std::string &path){
     std::vector<std::string> pre, in_ov;
     std::string out = exec_command("dpkg-deb -I " + path);
     
-    if (out.find(" preinst ") != std::string::npos) pre.push_back("preinst");
-    if (out.find(" postinst ") != std::string::npos) in_ov.push_back("postinst");
+    if (out.find(std::string(" ") + script::PRE_INSTALL + " ") != std::string::npos) pre.push_back(script::PRE_INSTALL);
+    if (out.find(std::string(" ") + script::POST_INSTALL + " ") != std::string::npos) in_ov.push_back(script::POST_INSTALL);
 
-    scripts["pre_overlay"] = pre;
-    scripts["in_overlay"] = in_ov;
+    scripts[script::PRE_OVERLAY] = pre;
+    scripts[script::IN_OVERLAY] = in_ov;
     return scripts;
 }
 

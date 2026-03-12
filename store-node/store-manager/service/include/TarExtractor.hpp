@@ -9,8 +9,7 @@
 #include <archive_entry.h>
 #include <nlohmann/json.hpp> 
 
-namespace fs = std::filesystem;
-using json = nlohmann::json;
+#include "utils.hpp"
 
 class TarExtractor {
 public:

@@ -6,34 +6,42 @@ from fastapi import FastAPI, HTTPException
 import os
 
 from fastapi.responses import StreamingResponse
-from DB import PackageDB
+from DB import PackageDB, HealthDB
 
 service = FastAPI()
 
 STORE = os.getenv("STORE_PATH", "/data/store_volume")
 STORE_MANAGER_UPDATES : str = os.getenv("UPDATE_FILE_REQUEST")
 
-db: PackageDB = None 
+pkg_db: PackageDB = None
+health_db: HealthDB = None
 
 @service.on_event("startup")
 async def startup_event():
-    global db
+    global pkg_db, health_db
     print(">>> Initializing Database...")
-    db = PackageDB(
+    pkg_db = PackageDB(
         uri=os.getenv("DB_HOST", "mongodb://mongo:27017"),
         name=os.getenv("MONGO_PACKAGES_DB"),
         collection=os.getenv("MONGO_PACKAGES_COLLECTION")
     )
-    print(">>> DB CONNECTED!")
+    health_db = HealthDB(
+        uri=os.getenv("DB_HOST", "mongodb://mongo:27017"),
+        name=os.getenv("MONGO_HEALTH_DB"),
+        collection=os.getenv("MONGO_HEALTH_COLLECTION")
+    )
+    print(">>> DB's CONNECTED!")
 
 @service.on_event("shutdown")
 async def shutdown_event():
-    if db:
-        db.close()
-    
+    if pkg_db:
+        pkg_db.close()
+    if health_db:
+        health_db.close()
+
 @service.post(STORE_MANAGER_UPDATES)
-async def create_package(package: Dict):
-    result = await db.get_pkg_by_hash(package["SHA256"])
+async def packages_updated(package: Dict):
+    result = await pkg_db.get_pkg_by_hash(package["SHA256"])
     if result is None:
         raise HTTPException(status_code=500, detail="Failed to find document")
     
@@ -43,24 +51,31 @@ async def create_package(package: Dict):
     
 @service.get("/pkgs_by_name")
 async def get_packages_by_name(Package: str):
-    result = await db.get_pkg_by_name(Package)
+    result = await pkg_db.get_pkg_by_name(Package)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
 @service.get("/pkgs_by_name_version")
 async def get_packages_by_name_version(Package: str, Version: str):
-    result = await db.get_pkg_by_name_version(Package, Version)
+    result = await pkg_db.get_pkg_by_name_version(Package, Version)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
 
 @service.get("/pkg_by_hash")
 async def get_packages_by_hash(SHA256: str):
-    result = await db.get_pkg_by_hash(SHA256)
+    result = await pkg_db.get_pkg_by_hash(SHA256)
     if not result:
         raise HTTPException(status_code=404, detail="Package not found")
     return result
+
+@service.post("/report_health")
+async def report_health(Report: Dict):
+    result = await health_db.insert_report(Report)
+    if not result:
+        raise HTTPException(status_code=400, detail="Invalid report format")
+    return {"status": "success"}
 
 @service.get("/download_pkg")
 async def get_download_package(Store_path: str):

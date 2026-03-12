@@ -20,7 +20,6 @@ RUN apt-get update && apt-get install -y \
     libstdc++-12-dev \
     && rm -rf /var/lib/apt/lists/*
 
-
 WORKDIR /tmp
 
 # Clone & Install Mongo C Driver (Required Dependency)
@@ -47,17 +46,23 @@ WORKDIR /service
 # Clone rt-libflute library directly into service workspace
 RUN mkdir -p deps && git clone https://github.com/5G-MAG/rt-libflute.git deps/rt-libflute
 
-#Clone httplib's header file
+# ===== 1. PRE-COMPILE FLUTE WITH GCC =====
+# Build flute first with GCC (the default toolchain in this image)
+RUN cd deps/rt-libflute \
+    && CC=gcc CXX=g++ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF \
+    && cmake --build build
+
+# Clone httplib's header file
 RUN mkdir -p deps/httplib \
  && curl -L \
   https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h \
   -o deps/httplib/httplib.h
 
-
 COPY service/ .
 
-# Build everything
-RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+# ===== 2. BUILD THE MAIN SERVICE WITH CLANG =====
+# Force CMake to use clang & clang++ 
+RUN CC=clang CXX=clang++ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build
 
 RUN cp build/StoreManager /usr/local/bin/

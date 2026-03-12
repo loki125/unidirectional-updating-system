@@ -4,6 +4,8 @@ x-common-env: &common-env
   MONGO_URI: ${MONGO_URI}
   MONGO_PACKAGES_DB: ${MONGO_PACKAGES_DB}
   MONGO_PACKAGES_COLLECTION: ${MONGO_PACKAGES_COLLECTION}
+  MONGO_HEALTH_DB: ${MONGO_HEALTH_DB}
+  MONGO_HEALTH_COLLECTION: ${MONGO_HEALTH_COLLECTION}
   UPDATE_FILE_REQUEST : ${UPDATE_FILE_REQUEST}
 
 services:
@@ -66,9 +68,10 @@ services:
       <<: *common-env
       OUTPUT_PATH: ${UPDATES_PATH}
       DISTRIBUTOR_URL: http://distributor:${DISTRIBUTOR_PORT}
-      UPDATE_FILE_REQUEST: ${UPDATE_FILE_REQUEST}
       FLUTE_PORT: ${FLUTE_PORT}
-      IP: ${MULTICAST_IP}
+      FLUTE_IP: ${MULTICAST_IP}
+      VIEW_PORT: ${VIEW_PORT}
+      VIEW_IP: ${VIEW_IP}
     networks:
       - isolated-net
       - mcast-gateway

@@ -1,7 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Dict, List, Optional
 
-class PackageDB:
+class Database:
     def __init__(self, uri, name, collection):
         self._client = AsyncIOMotorClient(uri)
         _db = self._client[name]
@@ -9,6 +9,10 @@ class PackageDB:
 
     def close(self):
         self._client.close()
+
+class PackageDB(Database):
+    def __init__(self, uri, name, collection):
+        super().__init__(uri, name, collection)
 
     async def _get_pkgs(self, query: Dict, amount: Optional[int] = None) -> List | None:
         cursor = self._collection.find(query, {"_id": 0})
@@ -36,3 +40,14 @@ class PackageDB:
     async def pkg_exists(self, package_data: Dict) -> bool:
         package = await self._collection.find_one({"Store_path": package_data["Store_path"]})
         return package is not None
+    
+class HealthDB(Database):
+    def __init__(self, uri, name, collection):
+        super().__init__(uri, name, collection)
+
+    async def insert_report(self, report: Dict) -> bool:
+        if not report.get("mac") or not report.get("name"):
+            return False
+        
+        result = await self._collection.insert_one(report)
+        return result.acknowledged

@@ -12,10 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include "utils.hpp"
-
-using json = nlohmann::json;
-namespace fs = std::filesystem;
-
+#include "Algorithms.hpp"
 
 class PackageReader {
 public:
@@ -24,7 +21,7 @@ public:
     virtual fs::path get_pkg_path(const fs::path& directory_path) = 0;
     virtual std::string get_name(const std::string& path) = 0;
     virtual std::string get_version(const std::string& path) = 0;
-    virtual std::map<std::string, json> generate_forests(const std::vector<std::string>& target_packages) = 0;
+    virtual forest_map generate_forests(const std::vector<std::string>& target_packages, const GSO& global_sort) = 0;
     virtual json get_scripts(const std::string& path) = 0; // Returns {pre, in_overlay}
     
     // Factory: Pick the right reader based on file extension
@@ -34,11 +31,11 @@ public:
 class DebReader : public PackageReader {
 
 private:
-    std::string get_elf_tag(const std::string& path, const std::string& tag);
+    std::vector<std::string> get_elf_tags(const std::string& path, const std::string& tag);
 
     std::map<std::string, std::string> build_provider_map(const std::vector<std::string>& all_store_paths);
 
-    std::string extract_deb_to_processing(const std::string& deb_path);
+    std::string extract_deb_to_processing(const fs::path& deb_path);
 
     void cleanup_processing_dirs(const std::vector<std::string>& target_packages);
 
@@ -49,7 +46,7 @@ public:
 
     std::string get_version(const std::string& path) override;
 
-    std::map<std::string, json> generate_forests(const std::vector<std::string>& target_packages) override ;
+    forest_map generate_forests(const std::vector<std::string>& target_packages, const GSO& global_sort) override ;
 
     json get_scripts(const std::string& path) override;
 };

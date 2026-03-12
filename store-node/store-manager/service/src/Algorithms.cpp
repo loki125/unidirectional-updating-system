@@ -16,7 +16,7 @@ GSO::GSO(const std::vector<json>& packages) : pgraph(graph_builder(packages)){
     this->sorted_pkgs = phrase_sorted_vector(pgraph, sorted_vector);
 }
 
-std::vector<json> GSO::subgraph_order(const std::string& name, const std::string& version){
+const std::vector<json> GSO::subgraph_order(const std::string& name, const std::string& version) const {
     // extract subgraph from the point of pkg
     // then see all packages it that sub graph and make a new sorted vector that consists only of the packages in the subgraph
     if(sorted_pkgs.empty())
@@ -54,7 +54,7 @@ PackageGraph GSO::graph_builder(const std::vector<json>& pkg_list)
         struct Package pkg(pkg_json);
 
         std::vector<Package>& depends = pkg.dependencies;
-        const json& unprased_depends = pkg_json.at("Dependencies");
+        const json& unprased_depends = pkg_json.at(pkg::DEPS);
 
         for(const auto& dep_vector : unprased_depends){
             struct Package dep{};
@@ -250,60 +250,8 @@ std::vector<json> GSO::phrase_sorted_vector(const PackageGraph &pgraph, const st
         json pkg_json = pgraph.get_package(index).package_json;
         
         sorted_packages.push_back(pkg_json);
-        spdlog::info("\n[GSO] package index {}\nSorted Package: {}", index, pkg_json["Filename"].get<std::string>());
+        spdlog::info("\n[GSO] package index {}\nSorted Package: {}", index, pkg_json[pkg::FILENAME].get<std::string>());
     }
     return sorted_packages;
 }
 
-/*
-
-this is just so i know where the implementation of GSO ends and RecipeMaker starts
-
-*/
-
-RecipeMaker::RecipeMaker(const json& manifest) : 
-
-packages(manifest["Packages"].get<std::vector<json>>()), 
-global_sort(GSO(this->packages))
-{}
-
-void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader& reader, const json& forest) {
-
-    fs::path pkg_path = reader.get_pkg_path(directory_path);
-
-    // Extract Info using the Reader
-    std::string pkg_name = reader.get_name(pkg_path.string());
-    std::string pkg_version = reader.get_version(pkg_path.string());
-    json recipe;
-    
-    recipe["package_name"] = pkg_name;
-    recipe["version"] = pkg_version;
-
-    // Calculate Recursive Mounts
-    json mount_instr = calculate_mounts(pkg_name, pkg_version);
-    recipe["mount_instructions"] = mount_instr["required_mounts"].empty() ? json::array() : mount_instr;
-
-    // Get Scripts
-    recipe.update(forest);
-    recipe["scripts"] = reader.get_scripts(pkg_path.string());
-
-    // Write Output
-    fs::path recipe_out = directory_path / "recipe.json";
-    std::ofstream out(recipe_out);
-    out << recipe.dump(4);
-    out.close();
-
-    spdlog::info("Recipe generated successfully at {}", recipe_out.string());
-}
-
-
-json RecipeMaker::calculate_mounts(const std::string& pkg_name, const std::string& pkg_version) {
-    
-    json required_mounts = json::array();
-    for(const auto& pkg : this->global_sort.subgraph_order(pkg_name, pkg_version))
-        required_mounts.push_back(pkg["Store_Path"]);
-        
-    json instr;
-    instr["required_mounts"] = required_mounts;
-    return instr;
-}

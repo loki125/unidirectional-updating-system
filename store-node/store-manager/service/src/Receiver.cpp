@@ -59,8 +59,8 @@ FluteReceiver::FluteReceiver()
     args.mcast_port = std::stoi(set_env_var("FLUTE_PORT"));
     spdlog::info("FLUTE_PORT successfully set to: {}", args.mcast_port);
 
-    args.mcast_target = set_env_var("IP");
-    spdlog::info("IP successfully set to: {}", args.mcast_target);
+    args.mcast_target = set_env_var("FLUTE_IP");
+    spdlog::info("FLUTE_IP successfully set to: {}", args.mcast_target);
 
     args.output_path = set_env_var("OUTPUT_PATH");
     spdlog::info("OUTPUT_PATH successfully set to: {}", args.output_path);

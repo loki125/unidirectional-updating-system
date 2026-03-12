@@ -1,8 +1,6 @@
 #pragma once
 
 #include <iostream>
-#include <fstream>
-#include <filesystem>
 #include <vector>
 #include <string>
 #include <cstdlib>
@@ -11,11 +9,9 @@
 #include <stack>
 #include <nlohmann/json.hpp>
 
-namespace fs = std::filesystem;
-using json = nlohmann::json;
-
+#include "utils.hpp"
 #include "Graphs.hpp"
-#include "PackageReader.hpp"
+
 
 //Global Sort Order
 class GSO {
@@ -37,25 +33,14 @@ private:
 public:
     GSO(const std::vector<json>& packages);
 
-    std::vector<json> subgraph_order(const std::string& name, const std::string& version);
+    const std::vector<json> subgraph_order(const std::string& name, const std::string& version) const;
+
+    const std::vector<json> get_sorted_pkgs() const { 
+        return sorted_pkgs; 
+    }
 
     ~GSO() = default;
 
 };
 
 
-
-class RecipeMaker {
-private:
-    std::vector<json>  packages;
-    GSO global_sort;
-
-public:
-    RecipeMaker(const json& manifest);
-
-    void generate_recipe(const fs::path& directory_path, PackageReader& reader, const json& forest);
-
-private:
-    // Helper to calculate mounts 
-    json calculate_mounts(const std::string& pkg_name, const std::string& pkg_version);
-};
