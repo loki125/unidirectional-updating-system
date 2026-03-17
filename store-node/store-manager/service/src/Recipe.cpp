@@ -8,7 +8,7 @@ packages(manifest[manifest::PACKAGES].get<std::vector<json>>()),
 global_sort(GSO(this->packages))
 {}
 
-void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader& reader, const json& forest) {
+void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader& reader, const provider_vector& provider_vector,const json& forest) {
 
     fs::path pkg_path = reader.get_pkg_path(directory_path);
 
@@ -24,8 +24,18 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader&
     json mount_instr = calculate_mounts(pkg_name, pkg_version);
     recipe[recipe::MOUNT_INS] = mount_instr[recipe::MOUNT_REQ].empty() ? json::array() : mount_instr;
 
+    // Add the forest and provider map for this package
+    recipe[recipe::SYMLINK_FOREST] = forest;
+
+    std::vector<std::string> temp_list;
+    temp_list.reserve(provider_vector.size()); // Pre-allocate memory
+    
+    for (const auto& [name, soname] : provider_vector) {
+        temp_list.push_back(name);
+    }
+    recipe[recipe::PROVIDER_MAP] = temp_list; // Single assignment
+        
     // Get Scripts
-    recipe.update(json{recipe::SYMLINK_FOREST, forest});
     recipe[recipe::SCRIPTS] = reader.get_scripts(pkg_path.string());
 
     // Write Output

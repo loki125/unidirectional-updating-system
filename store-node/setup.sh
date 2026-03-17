@@ -6,8 +6,6 @@ BRIDGE="br-isolated"
 BRIDGE_IP="192.168.50.1/24"
 TAP_IF="tap-vm0"
 
-VM_MAC="52:54:00:12:34:56" 
-VM_STATIC_IP="192.168.50.2"
 PORTS_TO_CLEAR=(40085 11080)
 
 # Helper Functions for logs
@@ -62,19 +60,40 @@ setup_network() {
     log_success "TAP $TAP_IF is UP and attached to $BRIDGE"
 }
 
-start_dhcp_server() {
-    if ! pgrep -f "dnsmasq --interface=$BRIDGE" > /dev/null; then
-        log_info "Starting DHCP server for $VM_STATIC_IP..."
-        sudo dnsmasq --interface="$BRIDGE" \
-                     --bind-interfaces \
-                     --port=0 \
-                     --dhcp-range=192.168.50.0,static \
-                     --dhcp-host="$VM_MAC","$VM_STATIC_IP",ignore-id \
-                     --conf-file=/dev/null # Ignore global config
-        log_success "DHCP server started"
-    else
-        log_info "DHCP server already running on $BRIDGE"
-    fi
+start_static_dhcp_server() {
+    local VM_MAC="52:54:00:12:34:56" 
+    local VM_STATIC_IP="192.168.50.2"
+
+    log_info "Restarting DHCP server in STATIC mode..."
+    # Kill any existing dnsmasq process specifically tied to this bridge
+    sudo pkill -f "dnsmasq --interface=$BRIDGE" || true
+    sleep 0.5 # Small buffer to ensure the port is released
+
+    sudo dnsmasq --interface="$BRIDGE" \
+                 --bind-interfaces \
+                 --port=0 \
+                 --dhcp-range=192.168.50.0,static \
+                 --dhcp-host="$VM_MAC","$VM_STATIC_IP",ignore-id \
+                 --conf-file=/dev/null 
+    log_success "Static DHCP server started for $VM_STATIC_IP for MAC $VM_MAC"
+}
+
+start_dynamic_dhcp_server() {
+    local DHCP_START="192.168.50.10"
+    local DHCP_END="192.168.50.100"
+    local NETMASK="255.255.255.0"
+
+    log_info "Restarting DHCP server in DYNAMIC mode..."
+    # Kill any existing dnsmasq process specifically tied to this bridge
+    sudo pkill -f "dnsmasq --interface=$BRIDGE" || true
+    sleep 0.5
+
+    sudo dnsmasq --interface="$BRIDGE" \
+                 --bind-interfaces \
+                 --port=0 \
+                 --dhcp-range="$DHCP_START","$DHCP_END","$NETMASK",12h \
+                 --conf-file=/dev/null 
+    log_success "Dynamic DHCP server started (Range: $DHCP_START - $DHCP_END)"
 }
 
 configure_firewall() {
@@ -108,17 +127,47 @@ configure_firewall() {
 
 # Main Execution Block
 main() {
+    # Default settings
+    local DHCP_MODE="static"
+    local SHOULD_BUILD=false
+
+    # Parse Arguments
+    for arg in "$@"; do
+        case $arg in
+            -s|--static)
+                DHCP_MODE="static"
+                shift
+                ;;
+            -d|--dynamic)
+                DHCP_MODE="dynamic"
+                shift
+                ;;
+            -b|--build)
+                SHOULD_BUILD=true
+                shift
+                ;;
+        esac
+    done
+
+    # Run Setup
     cleanup_environment
     setup_network
     configure_firewall
-    start_dhcp_server
 
-    if [[ "$1" == "-b" || "$1" == "--build" ]]; then 
+    # Choose DHCP Server based on flag
+    if [[ "$DHCP_MODE" == "dynamic" ]]; then
+        start_dynamic_dhcp_server
+    else
+        start_static_dhcp_server
+    fi
+
+    # Handle Build Flag
+    if [ "$SHOULD_BUILD" = true ]; then 
         log_info "Building Docker images..."
         docker compose build
     fi
 
-    log_success "Setup complete! Starting Docker Compose..."
+    log_success "Setup complete! Mode: $DHCP_MODE. Starting Docker Compose..."
     docker compose up
 }
 

@@ -9,7 +9,13 @@ RUN g++ -O3 -static-libgcc -static-libstdc++ -o mcast_router router.cpp
 FROM debian:bookworm-slim
 
 # Install iptables for the firewall rules
-RUN apt-get update && apt-get install -y iptables && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    iptables \
+    iputils-ping \
+    iputils-arping \
+    ethtool \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

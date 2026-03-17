@@ -23,7 +23,7 @@ private:
 public:
     RecipeMaker(const json& manifest);
 
-    void generate_recipe(const fs::path& directory_path, PackageReader& reader, const json& forest);
+    void generate_recipe(const fs::path& directory_path, PackageReader& reader, const provider_vector& provider_vector, const json& forest);
 
     const GSO& get_global_sort() const { return global_sort; }
 

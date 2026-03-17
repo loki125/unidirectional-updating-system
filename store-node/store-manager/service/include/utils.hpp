@@ -13,9 +13,14 @@
 #define READY_PATH "ready"
 #define PROCESSING_DIR "processing"
 
-using forest_map = std::map<std::string, std::map<std::string, std::string>>;
 using json = nlohmann::json;
 namespace fs = std::filesystem;
+
+using forest_map = std::map<fs::path, std::map<std::string, fs::path>>;
+// hash_path : List{provided_name, provided_soname}
+using provider_vector = std::vector<std::pair<std::string, std::string>>;
+using provider_map = std::map<fs::path, provider_vector>;
+
 
 namespace pkg {
     constexpr const char* NAME = "Package";
@@ -39,6 +44,7 @@ namespace recipe {
     constexpr const char* MOUNT_INS = "mount_instructions";
     constexpr const char* SCRIPTS = "scripts";
     constexpr const char* SYMLINK_FOREST = "symlink_forest";
+    constexpr const char* PROVIDER_MAP = "provider_map";
 }
 namespace script {
     constexpr const char* PRE_OVERLAY = "pre_overlay";

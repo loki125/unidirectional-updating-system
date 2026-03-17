@@ -70,72 +70,63 @@ PackageGraph GSO::graph_builder(const std::vector<json>& pkg_list)
     return pgraph;
 }
 
-std::vector<std::size_t> GSO::sort_algo(const Graph &graph){
+std::vector<std::size_t> GSO::sort_algo(const Graph &graph) {
     /*
-    Reverse Topological Sort Algorithm Explanation:
-    1. create G' as G reversed
-    2. start from the "leafs" of G (nodes with 0 out-degree in G)
-    3. BFS Traversal:
-        - Ask each leaf who are their neighbors (in G')
-        - For each neighbor:
-            - Look at his own neighbors in G and ask if all of them are already in the list
-            - If yes then add him to the list
-            - Add to queue to "go up to the next level"
-            - if BFS Traversal repeted more then the graphs size break *circular dependency detected*
-    4. Repeat until no more nodes can be added
-    5. if there was a cycle
-        - update JSON error handling here, graph is not DAG
-    6. return the list
+    Kahn's Algorithm for Topological Sorting:
+    Create list where in_degree[u] = count(in_degrees)
+    Find all leaf nodes and add them to a queue.
+    Process (BFS):
+        While the queue is not empty:
+            Take a node u out of the queue.
+            Add it to result list.
+            For every node v that depends on u:
+                in_degree[v]--
+                If in_degree[v] == 0:
+                    add v to the queue.
+    Check for Cycles: If result.size() < total number of nodes, a cycle exists.
+
+    Reverse: Reverse the list to get the Highest Dependency order.
     */
     std::size_t n = graph.size();
-    
-    Graph graph_rev(n); // This is G'
-    std::vector<std::size_t> out_degree_g(n, 0); // Represents dependency count
-
-    for (std::size_t u = 0; u < n; ++u) {
-        const auto& neighbors = graph.neighbors(u);
-        out_degree_g[u] = neighbors.size(); // Count neighbors in G
-        
-        for (std::size_t v : neighbors) {
-            // Original: u -> v
-            // Reverse (G'): v -> u
-            graph_rev.add_edge(v, u);
-        }
-    }
-
+    std::vector<std::size_t> in_degree(n, 0);
+    std::vector<std::size_t> result;
     std::queue<std::size_t> q;
-    std::vector<std::size_t> result; // The list
 
-    //insert all leafs (0 out-degree) into the queue
-    for (std::size_t i = 0; i < n; ++i) {
-        if (out_degree_g[i] == 0) {
-            q.push(i);
-            result.push_back(i);
+    // Calculate in-degrees
+    for (std::size_t u = 0; u < n; ++u) {
+        for (std::size_t v : graph.neighbors(u)) {
+            in_degree[v]++;
         }
     }
 
-    // BFS Traversal
+    // Add nodes with 0 dependencies to the queue
+    for (std::size_t i = 0; i < n; ++i) {
+        if (in_degree[i] == 0) {
+            q.push(i);
+        }
+    }
+
     while (!q.empty()) {
         std::size_t curr = q.front();
         q.pop();
+        result.push_back(curr);
 
-        for (std::size_t neighbor : graph_rev.neighbors(curr)) {
-            
-            out_degree_g[neighbor]--;
-
-            if (out_degree_g[neighbor] == 0) {
-                // "If all neighbors in list then add him"
-                result.push_back(neighbor);
-                
-                // Add to queue to "go up to the next level"
+        // For every node that depends on 'curr'
+        for (std::size_t neighbor : graph.neighbors(curr)) {
+            in_degree[neighbor]--;
+            // If all dependencies for 'neighbor' are satisfied
+            if (in_degree[neighbor] == 0) {
                 q.push(neighbor);
             }
-            
         }
     }
 
-    if (result.size() != n) 
-        throw std::runtime_error("Circular dependency detected"); // circular dependency detected
+    if (result.size() != n) {
+        throw std::runtime_error("Circular dependency detected");
+    }
+
+    // Reverse to get Highest to Lowest dependency order
+    std::reverse(result.begin(), result.end());
 
     return result;
 }

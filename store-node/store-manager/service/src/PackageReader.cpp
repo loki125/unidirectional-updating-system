@@ -1,5 +1,6 @@
 #include "PackageReader.hpp"
 
+
 std::unique_ptr<PackageReader> PackageReader::create(const std::string& type) {      
     if (type == "Debian") 
         return std::make_unique<DebReader>();
@@ -7,125 +8,140 @@ std::unique_ptr<PackageReader> PackageReader::create(const std::string& type) {
     throw std::runtime_error("Unsupported package type: " + type);
 }
 
-void DebReader::cleanup_processing_dirs(const std::vector<std::string>& target_packages) {
-    for (const auto& pkg : target_packages) {
-        fs::path pkg_path(pkg);
-        fs::path processing_dir = pkg_path.parent_path() / PROCESSING_DIR;
-        
-        if (fs::exists(processing_dir)) {
-            // Recursively deletes the processing directory and all its contents
-            fs::remove_all(processing_dir); 
-        }
-    }
-}
+forest_map DebReader::generate_forests(const std::vector<std::string>& target_paths, const provider_map& global_provider_map, const GSO& global_sort) {
 
-std::string DebReader::extract_deb_to_processing(const fs::path& deb_path) {
-    // Create the path: hash_path/processing/
-    fs::path processing_dir = deb_path.parent_path() / PROCESSING_DIR;
-
-    // Only extract if the processing directory doesn't already exist
-    if (!fs::exists(processing_dir)) {
-        fs::create_directories(processing_dir);
-        
-        // Extract the .deb file into the processing directory
-        // using dpkg-deb -x <deb_file> <target_dir>
-        std::string cmd = "dpkg-deb -x " + deb_path.string() + " " + processing_dir.string();
-        exec_command(cmd);
-    }
-
-    return processing_dir.string();
-}
-
-forest_map DebReader::generate_forests(const std::vector<std::string>& target_packages, const GSO& global_sort) {
-
-    // build_provider_map will extract packages if they haven't been extracted yet
-    const std::map<std::string, std::string>& global_provider_map = build_provider_map(target_packages);
     forest_map results;
 
     const std::vector<json>& sorted_pkgs = global_sort.get_sorted_pkgs();
     for (const auto& pkg : sorted_pkgs) {
-        std::map<std::string, std::string> pkg_forest;
-        fs::path target_path = pkg[pkg::PATH].get<fs::path>();
-        fs::path deb_path = target_path / pkg[pkg::FILENAME].get<std::string>();
+        const auto name = pkg[pkg::NAME].get<std::string>();
+        const auto version = pkg[pkg::VERSION].get<std::string>();
         
-        if (fs::exists(deb_path)) {
-            // Get the processing directory instead of iterating over the .deb file directly
-            std::string processing_dir = extract_deb_to_processing(deb_path);
+        const auto store_path = pkg[pkg::PATH].get<fs::path>();
 
-            // Iterate over the EXTRACTED processing directory
-            for (const auto& entry : fs::recursive_directory_iterator(processing_dir)) {
-                if (entry.is_regular_file()) {
-                    // Check for NEEDED libraries in the binary
-                    auto needed_libs = get_elf_tags(entry.path().string(), "NEEDED");
+        for (const json& dec_pkg : global_sort.subgraph_order(name, version)) {
+            fs::path dec_path = dec_pkg[pkg::PATH].get<fs::path>();
+            auto provider_it = global_provider_map.find(dec_path);
 
-                    if (!needed_libs.empty()) {
-                        // Identify which known providers offer these libraries
-                        for (const auto& lib_needed : needed_libs) {
-                            if (global_provider_map.count(lib_needed)) {
-                                pkg_forest[lib_needed] = global_provider_map.at(lib_needed);
-                            }
-                        }
+            if (dec_path == store_path || provider_it == global_provider_map.end()) 
+                continue; // skip self or if no providers found
+                
+            spdlog::info("For package {}-{}, checking dependencies in subgraph order: {}", name, version, dec_pkg[pkg::NAME].get<std::string>());
 
-                        const auto name = pkg[pkg::NAME].get<std::string>();
-                        const auto version = pkg[pkg::VERSION].get<std::string>();
-                        
-                        for (const json& dec_pkg : global_sort.subgraph_order(name, version)) {
-                            std::string dec_path = dec_pkg[pkg::PATH].get<std::string>();
-                            if (dec_path == target_path) continue; // skip self
-                            
-                            // Update forest with results from the descendant path
-                            for(auto& [lib, provider]: results[dec_path]) {
-                                if (pkg_forest.count(lib) == 0) // only add if not already present to preserve closest provider
-                                    pkg_forest[lib] = provider;
-                            }
-                        }
-                    }
-                }
+            for(auto& [provided_name, provided_soname] : provider_it->second) {
+                results[store_path].insert({
+                    provided_soname, 
+                    dec_path / provided_name
+                });
             }
         }
-
-        // Return a JSON object for this package containing the "symlink_forest" key
-        results[target_path] = pkg_forest;
     }
 
-    //Delete all the extracted processing directories before finishing
-    this->cleanup_processing_dirs(target_packages);
+    // No processing directories to clean up anymore!
     return results;
 }
 
-// Build a map of every .so and its SONAME to its location in the store
-std::map<std::string, std::string> DebReader::build_provider_map(const std::vector<std::string>& all_store_paths) {
-    std::map<std::string, std::string> provider_map;
+bool DebReader::is_system_pkg(const std::string& pkg_name) {
+    // Core system libraries that the OS / Bootstrapper provides
+    if (pkg_name == "libc6") 
+        return true;
+    
+    // Anything related to character set conversion (the huge gconv list)
+    if (pkg_name.find("libc-gconv") != std::string::npos) 
+        return true;
+    
+    //other heavy system packages that bloat the forest
+    if (pkg_name == "libgcc-s1")   
+        return true;
+    
+    return false;
+}
+
+// Build a map of every .so and its SONAME to its location in the store using LibArchive streams
+provider_map DebReader::build_provider_map(const std::vector<std::string>& all_store_paths) {
+    provider_map p_map;
     
     for (const auto& pkg : all_store_paths) {
         if (!fs::exists(pkg)) continue;
-        
-        // Extract the package and get the processing directory
-        std::string processing_dir = extract_deb_to_processing(pkg);
-        fs::path proc_dir_path(processing_dir), pkg_path(pkg);
-        
-        // Iterate over the EXTRACTED processing directory
-        for (const auto& entry : fs::recursive_directory_iterator(processing_dir)) {
-            if (entry.is_regular_file() && (entry.path().extension() == ".so" || entry.path().string().find(".so.") != std::string::npos)) {
-                
-                std::vector<std::string> sonames = this->get_elf_tags(entry.path().string(), "SONAME");
-                std::string soname = sonames.empty() ? "" : sonames[0];
 
-                // If no SONAME, use the filename as the lookup key
-                std::string key = soname.empty() ? entry.path().filename().string() : soname;
+        const std::string pkg_name = this->get_name(pkg);
+        if (this->is_system_pkg(pkg_name)) {
+            spdlog::info("Skipping system package: {}", pkg_name);
+            continue; 
+        }
+        // Use the package's true path as the unique key
+        fs::path map_key = fs::path(pkg).parent_path().filename(); // Use the directory name as the key (which should be unique due to store structure)
+        
+        // Output the raw tar stream from dpkg-deb and pipe it directly to libarchive
+        std::string cmd = "dpkg-deb --fsys-tarfile " + pkg;
+        FILE *pipe = popen(cmd.c_str(), "r");
+        if (!pipe) {
+            spdlog::error("Failed to run dpkg-deb stream on {}", pkg_name);
+            continue;
+        }
+        
+        struct archive *a = archive_read_new();
+        archive_read_support_filter_all(a);
+        archive_read_support_format_all(a);
+        
+        if (archive_read_open_FILE(a, pipe) != ARCHIVE_OK) {
+            spdlog::error("Failed to open archive stream for {}", pkg_name);
+            archive_read_free(a);
+            pclose(pipe);
+            continue;
+        }
+        
+        struct archive_entry *entry;
+        while (archive_read_next_header(a, &entry) == ARCHIVE_OK) {
+            // We only care about regular files
+            if (archive_entry_filetype(entry) != AE_IFREG) continue;
+            
+            std::string path_str = archive_entry_pathname(entry);
+            
+            // Clean up leading "./" standard in tar files
+            if (path_str.length() >= 2 && path_str.substr(0, 2) == "./") {
+                path_str = path_str.substr(2); 
+            }
+            
+            fs::path path(path_str);
+            bool is_so = (path.extension() == ".so" || path_str.find(".so.") != std::string::npos);
+            bool is_executable = (archive_entry_mode(entry) & 0111); // Checks for +x permission
+            
+            if (is_so || is_executable) {
+                // Create a secure, unique temporary file in /tmp
+                char tmp_template[] = "/tmp/lib_XXXXXX";
+                int fd = mkstemp(tmp_template);
                 
-                // skipping "processing" and volume directories in the path to get the correct relative path inside the store
-                fs::path relative_inside_deb = entry.path().lexically_relative(proc_dir_path);
-                fs::path hash_name = proc_dir_path.parent_path().filename();
+                if (fd != -1) {
+                    // Extract exactly this single file to the secure temp location
+                    archive_read_data_into_fd(a, fd);
+                    close(fd);
+                    
+                    if (is_so) {
+                        // Pass the temporary file path to your ELF reader
+                        std::vector<std::string> sonames = this->get_elf_tags(tmp_template, "SONAME");
 
-                fs::path final_path = hash_name / relative_inside_deb;
-                
-                // Map the library name to the cleaned up path
-                provider_map[key] = final_path.string();
+                        std::string soname = path.parent_path().string() + "/" + (sonames.empty() ? path.filename().string() : sonames[0]);
+                        std::string key = path.parent_path().string() + "/" + path.filename().string();
+
+                        p_map[map_key].push_back(std::make_pair(key, soname));
+                    } 
+                    else if (is_executable) {
+                        p_map[map_key].push_back(std::make_pair(path_str, path_str));
+                    }
+                    
+                    // Immediately delete the file from disk
+                    unlink(tmp_template); 
+                }
             }
         }
+        
+        // Clean up the archive and pipe handlers
+        archive_read_free(a);
+        pclose(pipe);
     }
-    return provider_map;
+    
+    return p_map;
 }
 
 // Helper to extract ELF tags (like SONAME or NEEDED)
@@ -136,7 +152,6 @@ std::vector<std::string> DebReader::get_elf_tags(const std::string& path, const 
     std::vector<std::string> results;
     static std::regex reg("\\[(.*?)\\]");
     
-    // Use iterator to find all matches
     auto words_begin = std::sregex_iterator(output.begin(), output.end(), reg);
     auto words_end = std::sregex_iterator();
 
@@ -160,16 +175,14 @@ json DebReader::get_scripts(const std::string &path){
     return scripts;
 }
 
-
 fs::path DebReader::get_pkg_path(const fs::path &directory_path){
-        // Find the package file (agnostic search)
-        for (const auto& entry : fs::directory_iterator(directory_path)) {
-            if (entry.path().extension() == ".deb") {
-                return entry.path();
-            }
+    for (const auto& entry : fs::directory_iterator(directory_path)) {
+        if (entry.path().extension() == ".deb") {
+            return entry.path();
         }
-        throw std::runtime_error("No .deb package found in " + directory_path.string());
     }
+    throw std::runtime_error("No .deb package found in " + directory_path.string());
+}
 
 std::string DebReader::get_name(const std::string &path){
     std::string out = exec_command("dpkg-deb -f " + path + " Package");

@@ -53,68 +53,75 @@ void Store::run()
             RecipeMaker maker(manifest);
 
             std::unique_ptr<PackageReader> pkg_reader;
+            provider_map global_provider_map;
             forest_map forests;
 
             try {
                 for (const auto& package : package_vector) {
                     fs::path f_path_fs;
-                        std::string path = package.at(pkg::PATH).get<std::string>();
-                        f_path_fs = this->store_vol / path;
+                    std::string path = package.at(pkg::PATH).get<std::string>();
+                    f_path_fs = this->store_vol / path;
 
-                        if (fs::exists(f_path_fs)) {
-                            spdlog::info("[STORE] Path {} already exists, skipping.", f_path_fs.string());
-                            continue;
-                        }
+                    if (fs::exists(f_path_fs)) {
+                        spdlog::info("[STORE] Path {} already exists, skipping.", f_path_fs.string());
+                        continue;
+                    }
 
-                        fs::create_directories(f_path_fs);
+                    fs::create_directories(f_path_fs);
 
-                        std::string filename = package.at(pkg::FILENAME).get<std::string>();
-                        fs::path source_path = f_path_fs / filename;
+                    std::string filename = package.at(pkg::FILENAME).get<std::string>();
+                    fs::path source_path = f_path_fs / filename;
 
-                        fs::rename(processing_dir / filename, source_path);
-                        
-                        // Add to the list for the next phase
-                        target_packages.push_back({f_path_fs, package});
-                        target_paths.push_back(source_path.string());
+                    fs::rename(processing_dir / filename, source_path);
+                    
+                    // Add to the list for the next phase
+                    target_packages.push_back({f_path_fs, package});
+                    target_paths.push_back(source_path.string());
 
-                        spdlog::debug("[STORE] File storage complete for: {}", filename);
+                    spdlog::debug("[STORE] File storage complete for: {}", filename);
 
                 }
 
                 pkg_reader = PackageReader::create(type);
-                forests = pkg_reader->generate_forests(target_paths, maker.get_global_sort());
+                global_provider_map = pkg_reader->build_provider_map(target_paths);
+                forests = pkg_reader->generate_forests(target_paths, global_provider_map, maker.get_global_sort());
 
             } catch (const std::exception& e) {
-                spdlog::error("[STORE] Physical storage failed at package: {}, stopping update processing.\n", target_paths.back(),e.what());
+                spdlog::error("[STORE] Physical storage failed at package: {}, stopping update processing.\n{}", target_paths.back(), e.what());
                 for (const auto& [dir_path, package_data] : target_packages) {
-                    fs::path f_path_fs = dir_path / package_data.at(pkg::FILENAME).get<std::string>();
 
-                    if (!f_path_fs.empty() && fs::exists(f_path_fs)) 
-                        fs::remove_all(f_path_fs);
+                    if (!dir_path.empty() && fs::exists(dir_path)) 
+                        fs::remove_all(dir_path);
                 }
                 continue;
             }
         
             for (const auto& [dir_path, package_data] : target_packages) {
-                fs::path file_path = dir_path / package_data.at(pkg::FILENAME).get<std::string>();
+                std::string filename = package_data.at(pkg::FILENAME).get<std::string>();
 
                 try {
-                    // Generate the recipe file in the store
-                    maker.generate_recipe(dir_path, *pkg_reader, forests[file_path.string()]);
+                    auto path_to_check = package_data.at(pkg::PATH).get<std::string>();
 
-                    // Commit to DB 
+                    // Generate the recipe file in the store
+                    maker.generate_recipe(dir_path, *pkg_reader, global_provider_map[path_to_check], forests[path_to_check]);
+
+                    // Commit to DB with a check to prevent duplicates (in case of reprocessing the same update)
+                    auto filter = make_document(kvp(std::string_view(pkg::PATH), path_to_check));
+                    if (this->db.collection.find_one(filter.view())) 
+                        continue; // Skip if already exists
+
                     auto bson_doc = bsoncxx::from_json(package_data.dump());
                     this->db.collection.insert_one(bson_doc.view());
-
+                    
                     // Notify Distributor
                     this->update_distributor(package_data);
                     
-                    spdlog::info("[STORE] Successfully committed package to DB: {}", file_path.string());
+                    spdlog::info("[STORE] Successfully committed package to DB: {}", filename);
 
                 } catch (const std::exception& e) {
-                    spdlog::error("[STORE] Metadata/Distributor update failed for {}: {}", file_path.string(), e.what());
-                    if (!file_path.empty() && fs::exists(file_path)) {
-                        fs::remove_all(file_path);
+                    spdlog::error("[STORE] Metadata/Distributor update failed for {}: {}", filename, e.what());
+                    if (!dir_path.empty() && fs::exists(dir_path)) {
+                        fs::remove_all(dir_path);
                     }
                     
                 }
