@@ -160,51 +160,42 @@ class FluteBroadcast:
                           destinations: Union[List[str], str] = "all") -> Dict:
         """
         Orchestrates package collection, tar creation, and broadcasting.
-        Returns the result of the broadcast request, or an error dict if preparation failed.
+        Utilizes the PackageService's dynamic recursive dependency resolver.
         """
         object_path = None
+        file_list = []
 
         try:
-            file_list = []
-            packages_for_manifest = []
+            packages_for_manifest =[]
             total_size_byte = 0
-            visited = set()
+            
+            # 1. Initialize lists with the main package
+            file_list.append(main_package_path)
+            packages_for_manifest.append(update_metadata)
+            total_size_byte += update_metadata.Size
+
             engine = factory.get_engine(update_metadata.Type)
 
-            # Helper to process and collect
-            async def process_package(metadata: PackageMetadata, f_path):
-                nonlocal visited
-                nonlocal total_size_byte
-                pkg_id = metadata.generate_id()
-
-                if pkg_id in visited:
-                    return
-                visited.add(pkg_id)
-
-                # Update metadata with actual filename and store
-                file_list.append(f_path)
-                packages_for_manifest.append(metadata)
-                total_size_byte += metadata.Size
-
-                # Process Dependencies recursively
-                for dep_info in metadata.Dependencies:
-                    pkg_name = dep_info[0]
-                    version = dep_info[1]
-                    arch = dep_info[2]
-
-                    if PackageMetadata.build_id(pkg_name, version, arch) in visited:
-                        continue
-
-                    next_metadata, next_f_path = await self._config_file(engine, pkg_name, version, arch)
-                    if next_metadata and next_f_path:
-                        await process_package(next_metadata, next_f_path)
-                    else:
-                        logging.warning(f"Dependency {dep_info} missing.")
-
+            # 2. Delegate dependency resolution to the engine
             async with engine:
-                await process_package(update_metadata, main_package_path)
+                # This single call dynamically resolves, checks constraints, queues, 
+                # and downloads ALL recursive dependencies, returning a flat list of metadata.
+                dependencies_metadata = await engine.get_recursive_dependencies(
+                    update_metadata, 
+                    main_package_path
+                )
 
-            # Construct the Manifest
+            # 3. Add the resolved dependencies to our build lists
+            for dep_meta in dependencies_metadata:
+                # Assuming dep_meta.Filename holds the path to the downloaded .deb file
+                dep_file_path = dep_meta.Filename 
+                
+                if dep_file_path not in file_list:
+                    file_list.append(dep_file_path)
+                    packages_for_manifest.append(dep_meta)
+                    total_size_byte += dep_meta.Size
+
+            # 4. Construct the Manifest
             manifest = UpdateManifest(
                 Update_id=update_metadata.generate_id(),
                 pkgs_type=update_metadata.Type,
@@ -214,10 +205,10 @@ class FluteBroadcast:
                 Packages=packages_for_manifest
             )
 
-            # Finalize: Create the tarball
+            # 5. Finalize: Create the tarball
             object_path = await self._create_tar_object(manifest, file_list, broadcaster_path)
             
-            # Send the broadcast request 
+            # 6. Send the broadcast request 
             return await self.send_object([object_path], destinations=destinations)
 
         except Exception as e:
@@ -234,6 +225,15 @@ class FluteBroadcast:
                     logging.info(f"Cleaned up temporary object: {object_path}")
                 except OSError as cleanup_e:
                     logging.warning(f"Failed to delete temporary file {object_path}: {cleanup_e}")
+                    
+            # OPTIONAL: Cleanup the downloaded dependency .deb files to save disk space
+            # (We skip the main_package_path because it was given to us)
+            for f in file_list:
+                if f != main_package_path and os.path.exists(f):
+                    try:
+                        await asyncio.to_thread(os.remove, f)
+                    except OSError:
+                        pass
 
     async def _config_file(self, engine, pkg_name: str, version: str, arch: str) -> Tuple[Optional[PackageMetadata], Optional[str]]:
         # Download the file

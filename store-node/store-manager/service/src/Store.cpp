@@ -46,13 +46,15 @@ void Store::run()
             json manifest = extractor.get_manifest();
             
             std::vector<json> package_vector = manifest.at(manifest::PACKAGES).get<std::vector<json>>();
-            std::string type = manifest.at(manifest::TYPE).get<std::string>();
+            std::unique_ptr<PackageReader> pkg_reader = PackageReader::create(
+                manifest.at(manifest::TYPE).get<std::string>()
+            );
 
             std::vector<std::pair<fs::path, json>> target_packages;
             std::vector<std::string> target_paths;
             RecipeMaker maker(manifest);
 
-            std::unique_ptr<PackageReader> pkg_reader;
+            
             provider_map global_provider_map;
             forest_map forests;
 
@@ -82,9 +84,8 @@ void Store::run()
 
                 }
 
-                pkg_reader = PackageReader::create(type);
                 global_provider_map = pkg_reader->build_provider_map(target_paths);
-                forests = pkg_reader->generate_forests(target_paths, global_provider_map, maker.get_global_sort());
+                forests = pkg_reader->generate_forests(global_provider_map, maker.get_global_sort());
 
             } catch (const std::exception& e) {
                 spdlog::error("[STORE] Physical storage failed at package: {}, stopping update processing.\n{}", target_paths.back(), e.what());

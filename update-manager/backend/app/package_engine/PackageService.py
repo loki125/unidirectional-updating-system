@@ -87,6 +87,20 @@ class PackageService(ABC):
         :return: A PackageMetadata object containing parsed information.
         """
         raise NotImplementedError
+    
+    @abstractmethod
+    async def get_recursive_dependencies(self, metadata: 'PackageMetadata', file_path: str) -> List['PackageMetadata']:
+        """
+        Dynamically resolves the full dependency tree for a given package. This method 
+        should handle complex scenarios such as multi-constraint intersections, 
+        re-evaluating packages if new constraints are discovered, and ensuring essential 
+        packages are included if they appear in 'Breaks'.
+        
+        :param metadata: The PackageMetadata of the root package.
+        :param file_path: The local path to the root package file.
+        :return: A list of PackageMetadata objects representing all resolved dependencies.
+        """
+        raise NotImplementedError
 
 class DebianPackageService(PackageService):
 
@@ -212,58 +226,6 @@ class DebianPackageService(PackageService):
         print(f"[OK] Downloaded and verified: {file_name}")
         return file_name
 
-    async def get_package_metadata(self, file_path: str) -> PackageMetadata:
-        """
-        Takes a local .deb file path and returns the info using 'dpkg-deb -I',
-        parses the output to a packageMetadata Baseclass.
-        """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
-
-        # Run dpkg-deb -I asynchronously
-        process = await asyncio.create_subprocess_exec(
-            'dpkg-deb', '-I', file_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            raise Exception(f"dpkg-deb error: {stderr.decode()}")
-
-        deb_info = stdout.decode()
-        lines = deb_info.splitlines()
-        control_data = {}
-        
-        # Parse key-value pairs from dpkg-deb output
-        for line in lines:
-            if ':' in line:
-                key, value = line.split(':', 1)
-                control_data[key.strip()] = value.strip()
-
-        # Calculate SHA256 of the local file
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(self.BUFFER), b""):
-                sha256_hash.update(byte_block)
-
-        arch = control_data.get("Architecture", "")
-        depends = await self._resolve_dependencies(control_data.get("Depends"), arch)
-
-        # Build the model using extracted and provided data
-        metadata = PackageMetadata(
-            Package=control_data.get("Package", ""),
-            Version=control_data.get("Version", ""),
-            Type=self.service_type,
-            Architecture=arch,
-            Dependencies=depends,
-            SHA256=sha256_hash.hexdigest(),
-            Installed_Size=int(control_data.get("Installed-Size", 0)),
-            Size=os.path.getsize(file_path),
-            Filename=os.path.basename(file_path),
-        )
-        return metadata
-
     async def _compare_versions(self, v1: str, operator: str, v2: str) -> bool:
         """Uses 'dpkg --compare-versions' to accurately compare Debian versions."""
         # Mapping standard ops to dpkg flags
@@ -281,7 +243,7 @@ class DebianPackageService(PackageService):
         await proc.wait()
         # dpkg returns 0 for True
         return proc.returncode == 0
-
+    
     async def _find_best_version(self, pkg_name: str, constraints: List[Tuple[str, str]]) -> Optional[str]:
         """
         Queries Snapshot for all versions and picks the highest one satisfying ALL constraints.
@@ -335,24 +297,37 @@ class DebianPackageService(PackageService):
         else:
             return None
 
+    async def _get_raw_control_data(self, file_path: str) -> Dict[str, str]:
+        """Helper to extract control fields from a .deb file."""
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
 
-    async def _resolve_dependencies(self, depends_str: str, target_arch: str) -> List[List[str]]:
-        """
-        Parses dependencies, groups constraints by package, and resolves them concurrently.
-        """
+        process = await asyncio.create_subprocess_exec(
+            'dpkg-deb', '-I', file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"dpkg-deb error: {stderr.decode()}")
+
+        control_data = {}
+        for line in stdout.decode().splitlines():
+            if ':' in line:
+                key, value = line.split(':', 1)
+                control_data[key.strip()] = value.strip()
+        return control_data
+
+    def _parse_constraints(self, depends_str: str) -> Dict[str, List[Tuple[str, str]]]:
+        """Helper to parse a dependency string into a dictionary of constraints."""
+        package_constraints = {}
         if not depends_str:
-            return []
+            return package_constraints
 
-        # Dictionary to group all constraints by package name:
-        # { 'pkg_name': [ (op1, ver1), (op2, ver2), ... ] }
-        package_constraints: Dict[str, List[Tuple[str, str]]] = {}
-
-        # 1. Parse all constraints and consolidate by package name
         for part in depends_str.split(','):
-            # Take the preferred dependency (ignoring alternatives for now)
             preferred_dep = part.split('|')[0].strip()
-
-            # Regex groups: 1=name, 5=operator, 6=version
+            # Regex groups: 1=name, 3=arch, 5=operator, 6=version
             match = re.search(r'^([a-z0-9\+\-\.]+)(:([a-z0-9]+))?(\s*\((<<|<=|=|>=|>>)\s*([^)]+)\))?', preferred_dep)
             if not match:
                 continue
@@ -362,60 +337,218 @@ class DebianPackageService(PackageService):
             constraint_ver = match.group(6)
             
             if pkg_name not in package_constraints:
-                package_constraints[pkg_name] = []
+                package_constraints[pkg_name] =[]
             
-            # Group constraints if they exist
             if constraint_op and constraint_ver:
                 package_constraints[pkg_name].append((constraint_op, constraint_ver))
-            # If no constraint is provided (just "pkg-name"), we rely on the default behavior
-            # of _find_best_version (returning the newest version).
+                
+        return package_constraints
 
+    async def _resolve_dependencies(self, depends_str: str, target_arch: str) -> List[List[str]]:
+        """Updated to use the new helper function."""
+        package_constraints = self._parse_constraints(depends_str)
         
-        # 2. Phase 1: Create version tasks for unique packages only
-        # This prevents duplicate API calls for ranges like pkg (>= V1), pkg (<= V2)
-        version_tasks = []
+        version_tasks =[]
         unique_pkg_names = list(package_constraints.keys()) 
 
         for pkg_name in unique_pkg_names:
             constraints = package_constraints[pkg_name]
-            # The find_best_version call now handles the list of constraints
             task = self._find_best_version(pkg_name, constraints) 
             version_tasks.append(task)
         
-        if not version_tasks:
-            return []
-
-        # Run all version lookups concurrently
+        if not version_tasks: return[]
         chosen_versions = await asyncio.gather(*version_tasks)
         
-        
-        # 3. Phase 2: Create and execute arch tasks based on found versions
         arch_tasks = []
-        successful_deps = [] 
+        successful_deps =[] 
         
-        # Only proceed for packages where we successfully found a version
         for pkg_name, best_version in zip(unique_pkg_names, chosen_versions):
             if best_version:
-                # We need the resolved version to check the available binary files
                 arch_task = self._target_arch_or_all(pkg_name, best_version, target_arch)
                 arch_tasks.append(arch_task)
-                
                 successful_deps.append((pkg_name, best_version))
         
-        if not arch_tasks:
-            return []
-            
-        # Run all architecture lookups concurrently
+        if not arch_tasks: return[]
         effective_architectures = await asyncio.gather(*arch_tasks)
         
-        
-        # 4. Final assembly
-        resolved_list = []
-        
+        resolved_list =[]
         for (pkg_name, chosen_version), effective_arch in zip(successful_deps, effective_architectures):
-            # effective_arch is the final determined architecture (e.g., 'amd64' or 'all')
             if effective_arch:
                 resolved_list.append([pkg_name, chosen_version, effective_arch])
 
         return resolved_list
 
+    async def get_package_metadata(self, file_path: str) -> PackageMetadata:
+        """
+        Modified to include both Depends and Pre-Depends in the required dependencies.
+        """
+        control_data = await self._get_raw_control_data(file_path)
+
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(self.BUFFER), b""):
+                sha256_hash.update(byte_block)
+
+        arch = control_data.get("Architecture", "")
+        
+        # Merge Depends and Pre-Depends
+        depends_str = control_data.get("Depends", "")
+        pre_depends_str = control_data.get("Pre-Depends", "")
+        all_depends =[]
+        if depends_str: all_depends.append(depends_str)
+        if pre_depends_str: all_depends.append(pre_depends_str)
+        combined_depends = ", ".join(all_depends)
+
+        depends = await self._resolve_dependencies(combined_depends, arch)
+
+        metadata = PackageMetadata(
+            Package=control_data.get("Package", ""),
+            Version=control_data.get("Version", ""),
+            Type=self.service_type,
+            Architecture=arch,
+            Dependencies=depends,
+            SHA256=sha256_hash.hexdigest(),
+            Installed_Size=int(control_data.get("Installed-Size", 0)),
+            Size=os.path.getsize(file_path),
+            Filename=os.path.basename(file_path),
+        )
+        return metadata
+
+    async def get_recursive_dependencies(self, metadata: 'PackageMetadata', file_path: str) -> List['PackageMetadata']:
+        """
+        Dynamically resolves the dependency tree. Handles:
+        1. Multi-constraint intersections (the 'middle ground').
+        2. Re-evaluating/Re-downloading packages if new strict constraints are discovered.
+        3. Ensuring essential packages are queued if they are in 'Breaks'.
+        """
+        arch = metadata.Architecture
+        
+        # Packages we never want to download
+        IGNORE_PACKAGES = {"dpkg", "awk"}
+        
+        # Essential packages that MUST be updated if they appear in 'Breaks'
+        ESSENTIAL_PACKAGES = {"base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"}
+        
+        # global_constraints maps a package to ALL of its version requirements:
+        # e.g., {'libssl':[('>=', '1.0'), ('<=', '2.0')]}
+        global_constraints: Dict[str, List[Tuple[str, str]]] = {}
+        
+        resolved_packages: Dict[str, 'PackageMetadata'] = {} 
+        replaces_provides = set()
+        enqueued = set()
+        queue = asyncio.Queue()
+
+        async def check_and_queue(pkg: str, reqs: List[Tuple[str, str]], invert: bool = False, is_essential_break: bool = False):
+            """Evaluates constraints and decides if a package needs to be queued or RE-queued."""
+            if pkg in IGNORE_PACKAGES:
+                return
+
+            if pkg not in global_constraints:
+                global_constraints[pkg] =[]
+            
+            new_constraints =[]
+            for op, ver in reqs:
+                if invert:
+                    # Invert logic for Breaks (e.g., Breaks < 13 -> requires >= 13)
+                    op = {"<<": ">=", "<=": ">>", "=": "!=", ">=": "<<", ">>": "<="}.get(op, op)
+                new_constraints.append((op, ver))
+                global_constraints[pkg].append((op, ver))
+            
+            # If we ALREADY downloaded this package, check if it satisfies these NEW rules.
+            if pkg in resolved_packages:
+                resolved_ver = resolved_packages[pkg].Version
+                for op, ver in new_constraints:
+                    if not await self._compare_versions(resolved_ver, op, ver):
+                        logging.warning(f"Version conflict! Currently have {pkg} v{resolved_ver}, but need {op} {ver}. Re-queueing to find middle ground.")
+                        # The currently downloaded version fails the new constraint.
+                        # Put it back in the queue to find a version that satisfies ALL constraints.
+                        await queue.put(pkg)
+                        break
+            else:
+                # We haven't downloaded it yet.
+                # Only queue it if it's a Depends, OR if it's an essential package that broke.
+                should_queue = not invert or is_essential_break
+                if should_queue and pkg not in enqueued:
+                    enqueued.add(pkg)
+                    await queue.put(pkg)
+
+        async def process_control_data(c_data: Dict[str, str]):
+            """Extracts logic from the control file of a downloaded package."""
+            
+            # 1. Standard Dependencies (Depends + Pre-Depends)
+            d_str = c_data.get("Depends", "")
+            pd_str = c_data.get("Pre-Depends", "")
+            parsed_d = self._parse_constraints(f"{d_str}, {pd_str}".strip(", "))
+            
+            for dep_pkg, reqs in parsed_d.items():
+                await check_and_queue(dep_pkg, reqs, invert=False)
+
+            # 2. Replaces / Provides (Keeps us from downloading obsolete packages)
+            rep_str = c_data.get("Replaces", "")
+            for part in rep_str.split(','):
+                cleaned = part.split('|')[0].strip()
+                if cleaned:
+                    r_pkg = cleaned.split()[0]
+                    replaces_provides.add(r_pkg)
+
+            # 3. Breaks / Conflicts
+            brk_str = c_data.get("Breaks", "")
+            parsed_brk = self._parse_constraints(brk_str)
+            
+            for brk_pkg, reqs in parsed_brk.items():
+                is_essential = brk_pkg in ESSENTIAL_PACKAGES
+                await check_and_queue(brk_pkg, reqs, invert=True, is_essential_break=is_essential)
+
+        # ----------------- Start the recursive loop -----------------
+        root_control = await self._get_raw_control_data(file_path)
+        enqueued.add(metadata.Package)
+        
+        # Add the root package to resolved so we don't try to download it again
+        resolved_packages[metadata.Package] = metadata 
+        await process_control_data(root_control)
+
+        # Process the download queue
+        while not queue.empty():
+            current_pkg = await queue.get()
+
+            # Skip if another package replaces it
+            if current_pkg in replaces_provides:
+                continue
+
+            # This passes ALL gathered constraints to snapshot API to find the middle ground
+            constraints = global_constraints.get(current_pkg,[])
+            best_version = await self._find_best_version(current_pkg, constraints)
+
+            if not best_version:
+                logging.error(f"Unresolvable constraints! No version of {current_pkg} satisfies: {constraints}")
+                continue
+
+            # If we already have THIS EXACT version downloaded, skip it
+            if current_pkg in resolved_packages and resolved_packages[current_pkg].Version == best_version:
+                continue 
+
+            target_arch = await self._target_arch_or_all(current_pkg, best_version, arch)
+            if not target_arch:
+                logging.warning(f"Architecture {arch} not found for {current_pkg}_{best_version}")
+                continue
+
+            try:
+                # Download the required dependency
+                dl_path = await self.get_package_file(current_pkg, best_version, target_arch)
+            except Exception as e:
+                logging.error(f"Failed to download {current_pkg}: {e}")
+                continue
+
+            # Read the newly downloaded file to get its metadata
+            pkg_meta = await self.get_package_metadata(dl_path)
+            
+            # Update our resolved list (this overwrites any older, violating version we might have had)
+            resolved_packages[current_pkg] = pkg_meta
+
+            # Extract internal control data from the newly downloaded file to discover DEEPER dependencies
+            curr_control = await self._get_raw_control_data(dl_path)
+            await process_control_data(curr_control)
+
+        # Return all dependencies (excluding the original root package we started with)
+        final_metadata_list =[v for k, v in resolved_packages.items() if k != metadata.Package]
+        return final_metadata_list

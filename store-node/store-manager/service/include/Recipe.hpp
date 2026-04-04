@@ -18,7 +18,7 @@ private:
     GSO global_sort;
 
     // Helper to calculate mounts 
-    json calculate_mounts(const std::string& pkg_name, const std::string& pkg_version);
+    json calculate_mounts(const std::string& pkg_name, const std::string& pkg_version, PackageReader& reader);
 
 public:
     RecipeMaker(const json& manifest);

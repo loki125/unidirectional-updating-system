@@ -27,7 +27,6 @@ set_target_properties(flute PROPERTIES
     IMPORTED_LOCATION "${FLUTE_LIB}"
     INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/deps/rt-libflute/include;${CMAKE_SOURCE_DIR}/deps/rt-libflute/src"
 )
-# --------------------------------------------
 
 add_executable(StoreManager 
     main.cpp
