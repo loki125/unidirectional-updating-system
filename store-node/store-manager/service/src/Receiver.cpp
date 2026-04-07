@@ -18,8 +18,7 @@ void FluteReceiver::set_receiver()
         this->io);
 
     // Configure IPSEC, if enabled
-    if (this->args.enable_ipsec)
-    {
+    if (this->args.enable_ipsec){
       this->receiver->enable_ipsec(1, this->args.aes_key);
     }
 
@@ -48,13 +47,31 @@ void FluteReceiver::set_receiver()
       });
 }
 
+std::string FluteReceiver::get_receiver_interface_ip() {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct ifreq ifr;
+    ifr.ifr_addr.sa_family = AF_INET;
+    strncpy(ifr.ifr_name, "eth1", IFNAMSIZ-1); // Force eth1 (mcast-gateway)
+    
+    if (ioctl(fd, SIOCGIFADDR, &ifr) < 0) {
+        close(fd);
+        spdlog::error("Failed to get IP address for eth1. Defaulting to 0.0.0.0");
+        return "0.0.0.0"; // Fallback
+    }
+    close(fd);
+    spdlog::info("Receiver will listen on IP: {}", inet_ntoa(((struct sockaddr_in*)&ifr.ifr_addr)->sin_addr));
+    return inet_ntoa(((struct sockaddr_in*)&ifr.ifr_addr)->sin_addr);
+}
+
 FluteReceiver::FluteReceiver()
 {
-    spdlog::set_level(spdlog::level::info);
+    exec_command("/entrypoint.sh"); // Ensure env vars are set for the receiver
+    
+    spdlog::set_level(spdlog::level::debug);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
 
     ft_arguments& args = this->args;
-    args.flute_interface = "0.0.0.0"; // Listen on all interfaces
+    args.flute_interface = "172.30.1.3"; 
 
     args.mcast_port = std::stoi(set_env_var("FLUTE_PORT"));
     spdlog::info("FLUTE_PORT successfully set to: {}", args.mcast_port);
@@ -77,6 +94,6 @@ FluteReceiver::~FluteReceiver()
 
 void FluteReceiver::run()
 {
-    this->io.run();
     spdlog::info("reciver is up and running");
+    this->io.run();
 }

@@ -12,13 +12,14 @@ global_sort(GSO(this->packages))
 void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader& reader, const provider_vector& provider_vector, const json& forest) {
 
     fs::path pkg_path = reader.get_pkg_path(directory_path);
+    fs::path store_vol = directory_path.parent_path();
 
     std::string pkg_name = reader.get_name(pkg_path.string());
     std::string pkg_version = reader.get_version(pkg_path.string());
     
     if(reader.is_system_pkg(pkg_name)) {
         spdlog::info("Found recipe generation for system package: {}, beginning bundling", pkg_name);
-        reader.bundle_system_package(pkg_path.string(), this->global_sort.subgraph_order(pkg_name, pkg_version));
+        reader.bundle_system_package(store_vol, pkg_path.string(), this->global_sort.subgraph_order(pkg_name, pkg_version));
     }
     
     json recipe;

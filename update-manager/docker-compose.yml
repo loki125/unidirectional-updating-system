@@ -19,7 +19,7 @@ services:
       IPS_PATH: "/data/na_ips_list.txt"
       UPDATE_FILE_PATH : "/data/broadcast_volume"
     networks:
-      um-net:
+      outside-net:
         ipv4_address: 172.30.0.10
 
   backend:
@@ -38,16 +38,13 @@ services:
       BROADCASTER_PORT: "8080"
       BROADCASTER_VOLUME_PATH: "/data/broadcast_volume"
     networks:
-      - um-net
+      - outside-net
         
 
 networks:
-  um-net:
-    name: network_um
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.30.0.0/24
+  outside-net:
+    external: true
+    name: outside-net
 
 volumes:
   broadcast_volume:

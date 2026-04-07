@@ -141,13 +141,13 @@ provider_map DebReader::build_provider_map(const std::vector<std::string>& all_s
     return p_map;
 }
 
-void DebReader::bundle_system_package(const std::string& sys_pkg_deb_path, const std::vector<json>& subgraph) {
+void DebReader::bundle_system_package(fs::path store_vol, const std::string& sys_pkg_deb_path, const std::vector<json>& subgraph) {
     fs::path sys_deb(sys_pkg_deb_path);
     fs::path sys_store_path = sys_deb.parent_path();
-    spdlog::info("Bundling dependencies into system package hash path at: {}", sys_store_path.parent_path().string());
+    spdlog::info("Bundling dependencies into system package hash path at: {}", sys_store_path.string());
 
     for (const auto& dep : subgraph) {
-        fs::path dep_deb_path = dep[pkg::FILENAME].get<std::string>();
+        fs::path dep_deb_path = store_vol / dep[pkg::PATH].get<std::string>() / dep[pkg::FILENAME].get<std::string>();
         
         // Skip the system package itself (don't link self to self)
         if (dep_deb_path == sys_deb) {

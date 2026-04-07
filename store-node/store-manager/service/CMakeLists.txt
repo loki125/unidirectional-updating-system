@@ -40,10 +40,7 @@ add_executable(StoreManager
     src/Reporter.cpp
 )
 
-target_include_directories(StoreManager PRIVATE
-    ${CMAKE_SOURCE_DIR}/deps/httplib
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+target_include_directories(StoreManager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # We link standard lib dependencies (spdlog, tinyxml2, etc.) directly into StoreManager. 
 # We need to do this explicitly now because CMake's `add_subdirectory` isn't there to auto-propagate them.

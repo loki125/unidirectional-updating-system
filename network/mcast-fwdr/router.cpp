@@ -92,7 +92,7 @@ int main() {
 
     // Forwarding Loop
     std::vector<char> buffer(BUFFER_SIZE);
-
+    int packet_count = 0;
     while (true) {
         struct sockaddr_in src_addr;
         socklen_t addr_len = sizeof(src_addr);
@@ -103,7 +103,7 @@ int main() {
             sendto(sock_send, buffer.data(), len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
         }
 
-        std::cout << "Forwarded packet from " << inet_ntoa(src_addr.sin_addr) << ":" << ntohs(src_addr.sin_port) 
+        std::cout << "Forwarded packet #" << ++packet_count << " from " << inet_ntoa(src_addr.sin_addr) << ":" << ntohs(src_addr.sin_port) 
                   << " to " << MCAST_GRP << ":" << MCAST_PORT << std::endl;
     }
 

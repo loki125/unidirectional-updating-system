@@ -14,9 +14,6 @@ log_success() { echo -e "\e[32m[+] $1\e[0m"; }
 log_error()   { echo -e "\e[31m[!] $1\e[0m"; }
 
 cleanup_environment() {
-    log_info "Stopping Docker containers..."
-    docker compose down > /dev/null 2>&1 || true
-
     for PORT in "${PORTS_TO_CLEAR[@]}"; do
         log_info "Checking port $PORT..."
         
@@ -127,6 +124,8 @@ configure_firewall() {
 
 # Main Execution Block
 main() {
+    trap 'docker compose -f networks.yml down > /dev/null 2>&1' EXIT
+
     # Default settings
     local DHCP_MODE="static"
     local SHOULD_BUILD=false
@@ -164,11 +163,11 @@ main() {
     # Handle Build Flag
     if [ "$SHOULD_BUILD" = true ]; then 
         log_info "Building Docker images..."
-        docker compose build
+        docker compose -f networks.yml build
     fi
 
     log_success "Setup complete! Mode: $DHCP_MODE. Starting Docker Compose..."
-    docker compose up
+    docker compose -f networks.yml up
 }
 
 # Run main with all script arguments

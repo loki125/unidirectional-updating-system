@@ -2,7 +2,8 @@
 
 #include <cstdint>
 #include <Receiver.h>
-#include <httplib.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 #include <memory>
 #include <string>
 #include <nlohmann/json.hpp> 
@@ -10,7 +11,7 @@
 using json = nlohmann::json;
 
 struct ft_arguments {
-  std::string flute_interface = {};  /**< file path of the config file. */
+  std::string flute_interface = {};
   std::string mcast_target = {};
   bool enable_ipsec = false;
   const char *aes_key = {};
@@ -24,9 +25,9 @@ class FluteReceiver{
 
     void set_receiver();
 
-    boost::asio::io_context io;
+    static std::string get_receiver_interface_ip();
 
-    std::string distributor_path;
+    boost::asio::io_context io;
 
     ft_arguments args;
 

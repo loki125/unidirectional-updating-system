@@ -2,6 +2,8 @@ FROM gcc:12
 
 RUN apt-get update && apt-get install -y \
     git \
+    tcpdump \
+    iproute2 \
     curl \
     build-essential \
     cmake \
@@ -51,12 +53,6 @@ RUN mkdir -p deps && git clone https://github.com/5G-MAG/rt-libflute.git deps/rt
 RUN cd deps/rt-libflute \
     && CC=gcc CXX=g++ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF \
     && cmake --build build
-
-# Clone httplib's header file
-RUN mkdir -p deps/httplib \
- && curl -L \
-  https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h \
-  -o deps/httplib/httplib.h
 
 COPY service/ .
 

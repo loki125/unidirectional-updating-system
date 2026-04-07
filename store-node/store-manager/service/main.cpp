@@ -22,7 +22,7 @@ void setup_logging() {
     auto console = spdlog::stdout_color_mt("console");
     spdlog::set_default_logger(console);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [thread %t] %v");
-    spdlog::set_level(spdlog::level::info);
+    spdlog::set_level(spdlog::level::debug);
 }
 
 /**

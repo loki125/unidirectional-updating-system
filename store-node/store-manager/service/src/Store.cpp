@@ -114,9 +114,6 @@ void Store::run()
                     auto bson_doc = bsoncxx::from_json(package_data.dump());
                     this->db.collection.insert_one(bson_doc.view());
                     
-                    // Notify Distributor
-                    this->update_distributor(package_data);
-                    
                     spdlog::info("[STORE] Successfully committed package to DB: {}", filename);
 
                 } catch (const std::exception& e) {
@@ -148,41 +145,4 @@ Store::Store() : db(set_env_var("MONGO_URI"), set_env_var("MONGO_PACKAGES_DB"), 
     fs::path output_path = set_env_var("OUTPUT_PATH");
 
     this->receiver_vol = output_path / READY_PATH;
-
-    std::string url = set_env_var("DISTRIBUTOR_URL");
-    std::string method = set_env_var("UPDATE_FILE_REQUEST");
-
-    spdlog::info("[STORE] DISTRIBUTOR_URL, UPDATE_FILE_REQUEST successfully set to: {}, {}", url, method);
-
-    this->distributor_path = method;
-    try{
-        this->cli = std::make_unique<httplib::Client>(url);
-
-        this->cli->set_connection_timeout(5);
-        this->cli->set_read_timeout(5);
-    } catch(const std::exception &e){
-
-        spdlog::error("[STORE] Failed to create HTTP client: {}", e.what());
-        throw;
-    }
-}
-
-void Store::update_distributor(const json& package_json){   
-    try {
-        auto res = this->cli->Post(this->distributor_path, package_json.dump(), "application/json");
-
-        if (res) {
-            if (res->status == 200 || res->status == 201) {
-                spdlog::info("[STORE] Successfully uploaded update to distributor: {}", this->distributor_path);
-            } else {
-                spdlog::error("[STORE] Distributor returned error status: {}", res->status);
-            }
-            spdlog::info("[STORE] Distributor response body: {}", res->body);
-        } else {
-            auto err = res.error();
-            spdlog::error("[STORE] Failed to connect to distributor ({}): {}", this->distributor_path, httplib::to_string(err));
-        }
-    } catch (const std::exception& e) {
-        spdlog::error("[STORE] Exception occurred during upload_update: {}", e.what());
-    }
 }

@@ -30,7 +30,7 @@ public:
     virtual provider_map build_provider_map(const std::vector<std::string>& all_store_paths) = 0;
     virtual json get_scripts(const std::string& path) = 0; // Returns {pre, in_overlay}
     virtual bool is_system_pkg(const std::string& pkg_name) = 0;
-    virtual void bundle_system_package(const std::string& pkg_path, const std::vector<json>& subgraph_pkgs) = 0;
+    virtual void bundle_system_package(fs::path store_vol, const std::string& pkg_path, const std::vector<json>& subgraph_pkgs) = 0;
     
     // Factory: Pick the right reader based on file extension
     static std::unique_ptr<PackageReader> create(const std::string& type);
@@ -44,7 +44,7 @@ private:
 public:
     bool is_system_pkg(const std::string& pkg_name) override;
 
-    void bundle_system_package(const std::string& pkg_path, const std::vector<json>& subgraph_pkgs) override;
+    void bundle_system_package(fs::path store_vol, const std::string& pkg_path, const std::vector<json>& subgraph_pkgs) override;
 
     fs::path get_pkg_path(const fs::path& directory_path) override;
 
