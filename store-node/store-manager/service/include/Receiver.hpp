@@ -25,7 +25,7 @@ class FluteReceiver{
 
     void set_receiver();
 
-    static std::string get_receiver_interface_ip();
+    static void setup_multicast_route(const std::string& ip);
 
     boost::asio::io_context io;
 

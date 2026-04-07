@@ -47,31 +47,31 @@ void FluteReceiver::set_receiver()
       });
 }
 
-std::string FluteReceiver::get_receiver_interface_ip() {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    struct ifreq ifr;
-    ifr.ifr_addr.sa_family = AF_INET;
-    strncpy(ifr.ifr_name, "eth1", IFNAMSIZ-1); // Force eth1 (mcast-gateway)
+void FluteReceiver::setup_multicast_route(const std::string& ip) {
+    std::string cmd = "ip -o addr show | grep " + ip + " | awk '{print $2}'";
+    std::string iface = exec_command(cmd);
+
+    // trim whitespace/newline from the result
+    iface.erase(iface.find_last_not_of(" \n\r\t") + 1);
+    iface.erase(0, iface.find_first_not_of(" \n\r\t"));
     
-    if (ioctl(fd, SIOCGIFADDR, &ifr) < 0) {
-        close(fd);
-        spdlog::error("Failed to get IP address for eth1. Defaulting to 0.0.0.0");
-        return "0.0.0.0"; // Fallback
+    if (iface.empty()) {
+        throw std::runtime_error("Could not find interface for IP: " + ip);
     }
-    close(fd);
-    spdlog::info("Receiver will listen on IP: {}", inet_ntoa(((struct sockaddr_in*)&ifr.ifr_addr)->sin_addr));
-    return inet_ntoa(((struct sockaddr_in*)&ifr.ifr_addr)->sin_addr);
+
+    exec_command("ip route add 224.0.0.0/4 dev " + iface);
 }
 
 FluteReceiver::FluteReceiver()
-{
-    exec_command("/entrypoint.sh"); // Ensure env vars are set for the receiver
-    
+{    
     spdlog::set_level(spdlog::level::debug);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
 
     ft_arguments& args = this->args;
-    args.flute_interface = "172.30.1.3"; 
+
+    this->setup_multicast_route("172.30.1.3");
+    args.flute_interface = "0.0.0.0";
+    spdlog::info("FLUTE_INTERFACE successfully set to: {}", args.flute_interface); 
 
     args.mcast_port = std::stoi(set_env_var("FLUTE_PORT"));
     spdlog::info("FLUTE_PORT successfully set to: {}", args.mcast_port);

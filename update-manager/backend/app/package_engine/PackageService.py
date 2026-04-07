@@ -551,4 +551,13 @@ class DebianPackageService(PackageService):
 
         # Return all dependencies (excluding the original root package we started with)
         final_metadata_list =[v for k, v in resolved_packages.items() if k != metadata.Package]
+
+        for pkg_name in enqueued:
+            if pkg_name in ESSENTIAL_PACKAGES and pkg_name in resolved_packages:
+                # Check if it's already in metadata.Dependencies to avoid duplicates
+                exists = any(d[0] == pkg_name for d in metadata.Dependencies)
+                if not exists:
+                    p = resolved_packages[pkg_name]
+                    metadata.Dependencies.append([p.Package, p.Version, p.Architecture])
+                    
         return final_metadata_list
