@@ -1,0 +1,50 @@
+x-name: daedalus_um
+
+services:
+  broadcaster:
+    build: ./broadcaster
+    image: um-broadcaster:latest
+    container_name: um-broadcaster
+    restart: "no"
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./broadcaster/service:/service/service
+      - broadcast_volume:/data/broadcast_volume
+      - ./broadcaster/na_ips_list.txt:/data/na_ips_list.txt
+    environment:
+      UDP_PORT: "40085"
+      IPS_PATH: "/data/na_ips_list.txt"
+      UPDATE_FILE_PATH : "/data/broadcast_volume"
+    networks:
+      outside-net:
+        ipv4_address: 172.30.0.10
+
+  backend:
+    build: ./backend
+    image: um-backend:latest
+    container_name: um-backend
+    restart: "no"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - broadcast_volume:/data/broadcast_volume
+    depends_on:
+      - broadcaster
+    environment:
+      BROADCASTER_PORT: "8080"
+      BROADCASTER_VOLUME_PATH: "/data/broadcast_volume"
+    networks:
+      - outside-net
+        
+
+networks:
+  outside-net:
+    external: true
+    name: outside-net
+
+volumes:
+  broadcast_volume:
