@@ -1,5 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
+
+# Change to the directory where the script is located
+cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" || exit 1
 
 # Configuration
 BRIDGE="br-isolated"

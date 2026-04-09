@@ -8,7 +8,7 @@ import aiohttp
 import asyncio
 import urllib.parse
 import logging
-from utilitys.PackageMetadata import PackageMetadata
+from utilitys.PackageMetadata import PackageMetadata, IGNORE_PACKAGES, ESSENTIAL_PACKAGES
 
 class PackageService(ABC):
     """
@@ -423,12 +423,6 @@ class DebianPackageService(PackageService):
         """
         arch = metadata.Architecture
         
-        # Packages we never want to download
-        IGNORE_PACKAGES = {"dpkg", "awk"}
-        
-        # Essential packages that MUST be updated if they appear in 'Breaks'
-        ESSENTIAL_PACKAGES = {"base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"}
-        
         # global_constraints maps a package to ALL of its version requirements:
         # e.g., {'libssl':[('>=', '1.0'), ('<=', '2.0')]}
         global_constraints: Dict[str, List[Tuple[str, str]]] = {}
@@ -559,5 +553,5 @@ class DebianPackageService(PackageService):
                 if not exists:
                     p = resolved_packages[pkg_name]
                     metadata.Dependencies.append([p.Package, p.Version, p.Architecture])
-                    
+
         return final_metadata_list
