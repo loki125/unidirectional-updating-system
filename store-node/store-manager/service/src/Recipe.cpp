@@ -16,13 +16,15 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader&
 
     std::string pkg_name = reader.get_name(pkg_path.string());
     std::string pkg_version = reader.get_version(pkg_path.string());
+    json recipe;
     
-    if(reader.is_system_pkg(pkg_name)) {
+    bool is_system = reader.is_system_pkg(pkg_name);
+    recipe[recipe::IS_SYSTEM] = is_system;
+    if(is_system) {
         spdlog::info("Found recipe generation for system package: {}, beginning bundling", pkg_name);
         reader.bundle_system_package(store_vol, pkg_path.string(), this->global_sort.subgraph_order(pkg_name, pkg_version));
     }
     
-    json recipe;
     recipe[recipe::PACKAGE_NAME] = pkg_name;
     recipe[recipe::VERSION] = pkg_version;
 
@@ -53,33 +55,22 @@ json RecipeMaker::calculate_mounts(const std::string& pkg_name, const std::strin
     json required_mounts = json::array();
     
     auto full_deps = this->global_sort.subgraph_order(pkg_name, pkg_version);
-    std::unordered_set<std::string> bundled_deps;
+    std::string sys_dep;
     
-    // 1. Identify dependencies that are bundled inside a system package
-    for (const auto& dep : full_deps) {
-        std::string dep_name = dep[pkg::NAME].get<std::string>();
-        
-        // If we encounter a system package (that isn't the root package itself)
-        if (reader.is_system_pkg(dep_name) && dep_name != pkg_name) {
-            auto sys_deps = this->global_sort.subgraph_order(dep_name, dep[pkg::VERSION].get<std::string>());
-            for (const auto& sys_dep : sys_deps) {
-                std::string sys_dep_name = sys_dep[pkg::NAME].get<std::string>();
-                if (sys_dep_name != dep_name) { // Add its dependencies, but not the system package itself
-                    bundled_deps.insert(sys_dep_name);
-                }
-            }
-        }
-    }
-    
-    // 2. Build mounts, strictly omitting anything that is bundled
     for(const auto& pkg : full_deps){
         std::string current_dep = pkg[pkg::NAME].get<std::string>();
-        if (bundled_deps.find(current_dep) == bundled_deps.end()) {
-            required_mounts.push_back(pkg[pkg::PATH]);
+        std::string current_path = pkg[pkg::PATH].get<std::string>();
+
+        if(reader.is_system_pkg(current_dep) && current_dep != pkg_name) {
+            sys_dep = current_path; // Skip the system package itself (don't mount self to self)
+            break;
         }
+
+        required_mounts.push_back(current_path);       
     }
         
     json instr;
     instr[recipe::MOUNT_REQ] = required_mounts;
+    instr[recipe::MOUNT_SYS] = sys_dep.empty() ? "" : sys_dep;
     return instr;
 }

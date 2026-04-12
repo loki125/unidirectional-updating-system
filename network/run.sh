@@ -47,12 +47,13 @@ setup_network() {
         log_info "Bridge $BRIDGE already exists"
     fi
 
-    # Create TAP Interface
-    if ! ip link show "$TAP_IF" &>/dev/null; then
-        log_info "Creating TAP interface $TAP_IF..."
-        sudo ip tuntap add dev "$TAP_IF" mode tap
-        log_success "TAP $TAP_IF created"
-    fi
+    log_info "Creating TAP interface $TAP_IF..."
+    # Delete the interface if it already exists (suppress errors if it doesn't)
+    sudo ip link delete "$TAP_IF" &>/dev/null || true
+    
+    # Create the new TAP interface
+    sudo ip tuntap add dev "$TAP_IF" mode tap
+    log_success "TAP $TAP_IF created"
 
     # Attach TAP to Bridge
     sudo ip link set "$TAP_IF" master "$BRIDGE"
@@ -62,7 +63,7 @@ setup_network() {
 
 start_static_dhcp_server() {
     local VM_MAC="52:54:00:12:34:56" 
-    local VM_STATIC_IP="192.168.50.2"
+    local VM_STATIC_IP="192.168.50.10"
 
     log_info "Restarting DHCP server in STATIC mode..."
     # Kill any existing dnsmasq process specifically tied to this bridge

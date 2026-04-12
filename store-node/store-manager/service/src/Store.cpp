@@ -81,7 +81,7 @@ void Store::run()
                     target_paths.push_back(source_path.string());
 
                     spdlog::debug("[STORE] File storage complete for: {}", filename);
-
+                    
                 }
 
                 global_provider_map = pkg_reader->build_provider_map(target_paths);

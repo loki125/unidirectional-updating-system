@@ -423,24 +423,28 @@ class DebianPackageService(PackageService):
         """
         arch = metadata.Architecture
         
-        # global_constraints maps a package to ALL of its version requirements:
-        # e.g., {'libssl':[('>=', '1.0'), ('<=', '2.0')]}
+        # global_constraints maps a package to ALL of its version requirements
         global_constraints: Dict[str, List[Tuple[str, str]]] = {}
         
         resolved_packages: Dict[str, 'PackageMetadata'] = {} 
         replaces_provides = set()
         enqueued = set()
         queue = asyncio.Queue()
+        
+        # Track relationships to attach dependencies to their proper parent later
+        # Format: List of Tuples (parent_package_name, required_package_name)
+        dependency_edges: List[Tuple[str, str]] = []
 
-        async def check_and_queue(pkg: str, reqs: List[Tuple[str, str]], invert: bool = False, is_essential_break: bool = False):
+        # NEW: Added parent_metadata argument
+        async def check_and_queue(pkg: str, reqs: List[Tuple[str, str]], parent_metadata: 'PackageMetadata', invert: bool = False, is_essential_break: bool = False):
             """Evaluates constraints and decides if a package needs to be queued or RE-queued."""
             if pkg in IGNORE_PACKAGES:
                 return
 
             if pkg not in global_constraints:
-                global_constraints[pkg] =[]
+                global_constraints[pkg] = []
             
-            new_constraints =[]
+            new_constraints = []
             for op, ver in reqs:
                 if invert:
                     # Invert logic for Breaks (e.g., Breaks < 13 -> requires >= 13)
@@ -454,19 +458,22 @@ class DebianPackageService(PackageService):
                 for op, ver in new_constraints:
                     if not await self._compare_versions(resolved_ver, op, ver):
                         logging.warning(f"Version conflict! Currently have {pkg} v{resolved_ver}, but need {op} {ver}. Re-queueing to find middle ground.")
-                        # The currently downloaded version fails the new constraint.
-                        # Put it back in the queue to find a version that satisfies ALL constraints.
                         await queue.put(pkg)
                         break
-            else:
-                # We haven't downloaded it yet.
-                # Only queue it if it's a Depends, OR if it's an essential package that broke.
-                should_queue = not invert or is_essential_break
-                if should_queue and pkg not in enqueued:
+            
+            # Decide if this requirement means we need to download it
+            should_queue = not invert or is_essential_break
+            
+            if should_queue:
+                # NEW: Record that the parent requires this package
+                dependency_edges.append((parent_metadata.Package, pkg))
+                
+                if pkg not in enqueued:
                     enqueued.add(pkg)
                     await queue.put(pkg)
 
-        async def process_control_data(c_data: Dict[str, str]):
+        # NEW: Added parent_metadata argument
+        async def process_control_data(c_data: Dict[str, str], parent_metadata: 'PackageMetadata'):
             """Extracts logic from the control file of a downloaded package."""
             
             # 1. Standard Dependencies (Depends + Pre-Depends)
@@ -475,7 +482,7 @@ class DebianPackageService(PackageService):
             parsed_d = self._parse_constraints(f"{d_str}, {pd_str}".strip(", "))
             
             for dep_pkg, reqs in parsed_d.items():
-                await check_and_queue(dep_pkg, reqs, invert=False)
+                await check_and_queue(dep_pkg, reqs, parent_metadata, invert=False)
 
             # 2. Replaces / Provides (Keeps us from downloading obsolete packages)
             rep_str = c_data.get("Replaces", "")
@@ -491,7 +498,7 @@ class DebianPackageService(PackageService):
             
             for brk_pkg, reqs in parsed_brk.items():
                 is_essential = brk_pkg in ESSENTIAL_PACKAGES
-                await check_and_queue(brk_pkg, reqs, invert=True, is_essential_break=is_essential)
+                await check_and_queue(brk_pkg, reqs, parent_metadata, invert=True, is_essential_break=is_essential)
 
         # ----------------- Start the recursive loop -----------------
         root_control = await self._get_raw_control_data(file_path)
@@ -499,7 +506,9 @@ class DebianPackageService(PackageService):
         
         # Add the root package to resolved so we don't try to download it again
         resolved_packages[metadata.Package] = metadata 
-        await process_control_data(root_control)
+        
+        # Pass the root metadata as the parent context
+        await process_control_data(root_control, metadata)
 
         # Process the download queue
         while not queue.empty():
@@ -509,15 +518,13 @@ class DebianPackageService(PackageService):
             if current_pkg in replaces_provides:
                 continue
 
-            # This passes ALL gathered constraints to snapshot API to find the middle ground
-            constraints = global_constraints.get(current_pkg,[])
+            constraints = global_constraints.get(current_pkg, [])
             best_version = await self._find_best_version(current_pkg, constraints)
 
             if not best_version:
                 logging.error(f"Unresolvable constraints! No version of {current_pkg} satisfies: {constraints}")
                 continue
 
-            # If we already have THIS EXACT version downloaded, skip it
             if current_pkg in resolved_packages and resolved_packages[current_pkg].Version == best_version:
                 continue 
 
@@ -527,31 +534,31 @@ class DebianPackageService(PackageService):
                 continue
 
             try:
-                # Download the required dependency
                 dl_path = await self.get_package_file(current_pkg, best_version, target_arch)
             except Exception as e:
                 logging.error(f"Failed to download {current_pkg}: {e}")
                 continue
 
-            # Read the newly downloaded file to get its metadata
             pkg_meta = await self.get_package_metadata(dl_path)
-            
-            # Update our resolved list (this overwrites any older, violating version we might have had)
             resolved_packages[current_pkg] = pkg_meta
 
-            # Extract internal control data from the newly downloaded file to discover DEEPER dependencies
             curr_control = await self._get_raw_control_data(dl_path)
-            await process_control_data(curr_control)
+            
+            # Pass the newly resolved package metadata as the parent context
+            await process_control_data(curr_control, pkg_meta)
+
+        # Link dependencies to their parents instead of just the root tree
+        for parent_name, child_name in dependency_edges:
+            if parent_name in resolved_packages and child_name in resolved_packages:
+                parent_meta = resolved_packages[parent_name]
+                child_meta = resolved_packages[child_name]
+                
+                # Check if it's already in parent's Dependencies to avoid duplicates
+                exists = any(d[0] == child_name for d in parent_meta.Dependencies)
+                if not exists:
+                    parent_meta.Dependencies.append([child_meta.Package, child_meta.Version, child_meta.Architecture])
 
         # Return all dependencies (excluding the original root package we started with)
-        final_metadata_list =[v for k, v in resolved_packages.items() if k != metadata.Package]
-
-        for pkg_name in enqueued:
-            if pkg_name in ESSENTIAL_PACKAGES and pkg_name in resolved_packages:
-                # Check if it's already in metadata.Dependencies to avoid duplicates
-                exists = any(d[0] == pkg_name for d in metadata.Dependencies)
-                if not exists:
-                    p = resolved_packages[pkg_name]
-                    metadata.Dependencies.append([p.Package, p.Version, p.Architecture])
+        final_metadata_list = [v for k, v in resolved_packages.items() if k != metadata.Package]
 
         return final_metadata_list
