@@ -30,7 +30,7 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader&
 
     // Calculate Recursive Mounts (Pass the reader to allow system dependency filtering)
     json mount_instr = calculate_mounts(pkg_name, pkg_version, reader);
-    recipe[recipe::MOUNT_INS] = mount_instr[recipe::MOUNT_REQ].empty() ? json::array() : mount_instr;
+    recipe[recipe::MOUNT_INS] = mount_instr.empty() ? json::array() : mount_instr;
 
     recipe[recipe::SYMLINK_FOREST] = forest;
 
@@ -52,25 +52,69 @@ void RecipeMaker::generate_recipe(const fs::path& directory_path, PackageReader&
 }
 
 json RecipeMaker::calculate_mounts(const std::string& pkg_name, const std::string& pkg_version, PackageReader& reader) {
-    json required_mounts = json::array();
-    
+    std::vector<std::string> required_mounts_vec;
+    std::string sys_dep_path;
+
+    // 1. Get the full subgraph (Deepest base dependencies first, target package last)
     auto full_deps = this->global_sort.subgraph_order(pkg_name, pkg_version);
-    std::string sys_dep;
     
-    for(const auto& pkg : full_deps){
+    std::unordered_set<std::string> sys_subgraph_names;
+
+    // 2. Search BACKWARDS from the target package down to its dependencies
+    // This ensures we hit 'libc6' BEFORE we hit its deep dependency 'libc-gconv'
+    for (auto it = full_deps.rbegin(); it != full_deps.rend(); ++it) {
+        const auto& pkg = *it;
+        std::string current_dep = pkg[pkg::NAME].get<std::string>();
+        
+        // Skip the target package itself during this search
+        if (current_dep == pkg_name) {
+            continue; 
+        }
+
+        if (reader.is_system_pkg(current_dep)) {
+            // We found the HIGHEST level system package (e.g., libc6)!
+            sys_dep_path = pkg[pkg::PATH].get<std::string>();
+            
+            // Get the system package's subgraph
+            std::string sys_ver = pkg[pkg::VERSION].get<std::string>(); 
+            auto sys_subgraph = this->global_sort.subgraph_order(current_dep, sys_ver);
+            
+            // Populate the exclusion set with all sub-dependencies
+            for (const auto& sys_pkg : sys_subgraph) {
+                sys_subgraph_names.insert(sys_pkg[pkg::NAME].get<std::string>());
+            }
+            
+            // If subgraph_order doesn't include the root node, this prevents it from leaking into required_mounts.
+            sys_subgraph_names.insert(current_dep);
+            
+            break; // Stop searching once we've found our top-level system package
+        }
+    }
+
+    // 3. Reverse the full dependencies (as you originally wanted for mount ordering)
+    std::reverse(full_deps.begin(), full_deps.end());
+
+    // 4. Iterate and populate required mounts
+    for (const auto& pkg : full_deps) {
         std::string current_dep = pkg[pkg::NAME].get<std::string>();
         std::string current_path = pkg[pkg::PATH].get<std::string>();
 
-        if(reader.is_system_pkg(current_dep) && current_dep != pkg_name) {
-            sys_dep = current_path; // Skip the system package itself (don't mount self to self)
-            break;
+        // Skip the target package itself
+        if (current_dep == pkg_name) {
+            continue;
         }
 
-        required_mounts.push_back(current_path);       
+        // Check if this package is inside the system package's subgraph exclusion set
+        if (sys_subgraph_names.find(current_dep) == sys_subgraph_names.end()) {
+            // It's NOT part of the system tree, so add it to required mounts
+            required_mounts_vec.push_back(current_path);
+        }
     }
-        
+
+    // 5. Construct the final JSON object
     json instr;
-    instr[recipe::MOUNT_REQ] = required_mounts;
-    instr[recipe::MOUNT_SYS] = sys_dep.empty() ? "" : sys_dep;
+    instr[recipe::MOUNT_REQ] = required_mounts_vec; // Automatically converts to [] if empty
+    instr[recipe::MOUNT_SYS] = sys_dep_path.empty() ? json::array() : json::array({sys_dep_path});
+    
     return instr;
 }
