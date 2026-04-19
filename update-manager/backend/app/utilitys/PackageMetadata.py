@@ -1,6 +1,12 @@
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import List, Optional
 
+        
+# Packages we never want to download
+IGNORE_PACKAGES = {"dpkg", "awk"}
+# Essential packages that MUST be updated if they appear in 'Breaks'
+ESSENTIAL_PACKAGES = {"base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"}
+
 class PackageMetadata(BaseModel):
     # Enforce strict types
     Package: str

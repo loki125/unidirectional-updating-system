@@ -78,6 +78,10 @@ provider_map DebReader::build_provider_map(const std::vector<std::string>& all_s
         if (!fs::exists(pkg)) continue;
 
         const std::string pkg_name = this->get_name(pkg);
+        if(this->is_system_pkg(pkg_name)) {
+            spdlog::info("Skipping provider map extraction for system package: {}", this->get_name(pkg));
+            continue;
+        }
         fs::path map_key = fs::path(pkg).parent_path().filename(); 
         
         std::string cmd = "dpkg-deb --fsys-tarfile " + pkg;

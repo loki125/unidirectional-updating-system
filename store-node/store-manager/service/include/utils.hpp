@@ -41,10 +41,12 @@ namespace recipe {
     constexpr const char* PACKAGE_NAME = "package_name";
     constexpr const char* VERSION = "version";
     constexpr const char* MOUNT_REQ = "required_mounts";
+    constexpr const char* MOUNT_SYS = "system_mounts";
     constexpr const char* MOUNT_INS = "mount_instructions";
     constexpr const char* SCRIPTS = "scripts";
     constexpr const char* SYMLINK_FOREST = "symlink_forest";
     constexpr const char* PROVIDER_MAP = "provider_map";
+    constexpr const char* IS_SYSTEM = "is_system";
 }
 namespace script {
     constexpr const char* PRE_OVERLAY = "pre_overlay";
