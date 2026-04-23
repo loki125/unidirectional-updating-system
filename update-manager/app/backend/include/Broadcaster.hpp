@@ -22,6 +22,8 @@
 #include <spdlog/spdlog.h>
 #include "../utils/base64.h"
 
+#include "PackageFactory.hpp"
+#include "PackageService.hpp"
 #include "utils.hpp"
 
 class Broadcaster {

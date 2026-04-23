@@ -101,7 +101,7 @@ public:
 
 class DebianPackageService : public PackageService {
 public:
-    DebianPackageService();
+    DebianPackageService() = default;
     virtual ~DebianPackageService() = default;
 
     // Interface Implementation

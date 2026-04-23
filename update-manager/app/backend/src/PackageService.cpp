@@ -63,6 +63,33 @@ std::string DebianPackageService::_calculate_sha256(const std::string& file_path
     return ss.str();
 }
 
+std::vector<std::vector<std::string>> DebianPackageService::_resolve_dependencies(const std::string& depends_str, 
+                                                                                const std::string& target_arch) {
+    if (depends_str.empty()) return {};
+
+    // 1. Parse the raw string into package names and their constraints
+    auto package_constraints = _parse_constraints(depends_str);
+    std::vector<std::vector<std::string>> resolved_list;
+
+    for (const auto& [pkg_name, constraints] : package_constraints) {
+        // 2. Find the best version that fits all constraints
+        std::string best_version = _find_best_version(pkg_name, constraints);
+        
+        if (!best_version.empty()) {
+            // 3. Verify architecture (target_arch or 'all')
+            std::string effective_arch = _target_arch_or_all(pkg_name, best_version, target_arch);
+            
+            if (!effective_arch.empty()) {
+                resolved_list.push_back({pkg_name, best_version, effective_arch});
+            }
+        } else {
+            spdlog::warn("Could not resolve version for package: {} with given constraints", pkg_name);
+        }
+    }
+
+    return resolved_list;
+}
+
 std::vector<json> DebianPackageService::get_package_instances(const std::string& pkg_name) {
     std::string endpoint = "/mr/binary/" + pkg_name + "/";
     json data = _get_json(endpoint);
@@ -78,7 +105,7 @@ json DebianPackageService::get_package_info(const std::string& pkg_name,
                                                      const std::string& version, 
                                                      const std::string& architecture) {
     // URL encode the version (handling characters like : and +)
-    std::string encoded_version = httplib::detail::encode_url(version);
+    std::string encoded_version = encode_url(version);
     std::string endpoint = "/mr/binary/" + pkg_name + "/" + encoded_version + "/binfiles?fileinfo=1";
     
     json data = _get_json(endpoint);
@@ -152,7 +179,7 @@ PackageMetadata DebianPackageService::get_package_metadata(const std::string& fi
 std::string DebianPackageService::_target_arch_or_all(const std::string& pkg_name, 
                                                       const std::string& version, 
                                                       const std::string& target_arch) {
-    std::string encoded_ver = httplib::detail::encode_url(version);
+    std::string encoded_ver = encode_url(version);
     std::string endpoint = "/mr/binary/" + pkg_name + "/" + encoded_ver + "/binfiles";
     
     json data = _get_json(endpoint);
@@ -381,19 +408,7 @@ std::string DebianPackageService::get_package_file(const std::string& pkg_name,
         throw std::runtime_error("Missing file name in metadata for " + pkg_name);
     }
 
-    // Helper to URL-encode the filename (handles '+' -> '%2B')
-    auto url_encode = [](const std::string& value) {
-        std::ostringstream escaped;
-        escaped.fill('0');
-        escaped << std::hex;
-        for (char c : value) {
-            if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') escaped << c;
-            else escaped << std::uppercase << '%' << std::setw(2) << int((unsigned char)c) << std::nouppercase;
-        }
-        return escaped.str();
-    };
-
-    std::string endpoint = "/archive/debian/" + first_seen + "/" + path_str + "/" + url_encode(file_name);
+    std::string endpoint = "/archive/debian/" + first_seen + "/" + path_str + "/" + encode_url(file_name);
 
     // Download the file
     std::ofstream outfile(file_name, std::ios::binary);

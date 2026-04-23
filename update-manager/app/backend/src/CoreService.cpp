@@ -16,16 +16,11 @@ std::string CoreService::process_and_broadcast(
     }
 
     engine->init();
-    
-    PackageMetadata metadata = engine->get_package_metadata(pkg, version, arch);
-    std::string main_package_path = engine->get_package_file(pkg, version, arch);
-    
-    if (metadata.name.empty()) {
-        spdlog::error("Failed to retrieve metadata for package: {} {} {} {}", type, pkg, version, arch);
-        return json{{"error", "Package metadata not found"}}.dump();
-    }
 
-    return this->broadcaster.send(main_package_path, metadata, engine.get(), volume_path).dump();
+    std::string file_path = engine->get_package_file(pkg, version, arch);
+    PackageMetadata metadata = engine->get_package_metadata(file_path);
+
+    return this->broadcaster.send(file_path, metadata, engine.get(), volume_path).dump();
 }
 
 CoreService::CoreService() : broadcaster(), factory() {
@@ -36,18 +31,20 @@ std::vector<std::string> CoreService::get_package_instances(
     std::string pkg,
     std::string type
 ) {
-    auto engine = this->factory.get_engine(type);
-    if (!engine) {
-        spdlog::error("Unsupported package type: {}", type);
-        return json{{"error", "Unsupported package type"}}.dump();
-    }
-
-    engine->init();
-    std::vector<json> instances = engine->get_package_instances(pkg);
     std::vector<std::string> result;
+    auto engine = this->factory.get_engine(type);
+    
+    if (engine) {
+        engine->init();
+        std::vector<json> instances = engine->get_package_instances(pkg);
 
-    for(const auto& instance : instances) {
-        result.push_back(instance.dump());
+        for(const auto& instance : instances) {
+            result.push_back(instance.dump());
+        }
+    }
+    else{
+        spdlog::error("Unsupported package type: {}", type);
+        result.push_back(json{{"error", "Unsupported package type"}}.dump());
     }
 
     return result;

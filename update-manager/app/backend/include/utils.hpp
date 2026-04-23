@@ -4,7 +4,6 @@
 #include <string>
 #include <vector>
 #include <set>
-#include <optional>
 #include <mutex>
 #include <array>
 #include <tuple>
@@ -17,8 +16,11 @@
 #include <nlohmann/json.hpp>
 
 #define SET_PATH(func) "/" #func
+#define CONNECTION_TIMEOUT 10 // seconds
+#define READ_TIMEOUT 60 // seconds
 
 using json = nlohmann::json;
+namespace fs = std::filesystem;
 extern char **environ; // Required for posix_spawn so Linker wont get angry
 
 /*
@@ -45,6 +47,27 @@ struct CommandResult {
  * Executes a shell command, captures stdout and stderr separately,
  * and returns the exit status.
  */
+
+ inline std::string encode_url(const std::string &value) {
+    std::ostringstream escaped;
+    escaped.fill('0');
+    escaped << std::hex;
+
+    for (auto i = value.begin(), n = value.end(); i != n; ++i) {
+        std::string::value_type c = (*i);
+
+        // Keep alphanumeric and other safe characters
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            escaped << c;
+            continue;
+        }
+
+        // Any other characters are percent-encoded
+        escaped << std::uppercase << '%' << std::setw(2) << int((unsigned char)c);
+    }
+
+    return escaped.str();
+}
 
 inline int execute_status_cmd(const std::string& cmd) {
     // std::system returns the shell exit status directly
@@ -118,7 +141,7 @@ struct PackageMetadata {
     std::string Version;
     std::string Type;
     std::string Architecture;
-    std::optional<std::string> Store_Path = std::nullopt;
+    std::string Store_Path;
     std::vector<std::vector<std::string>> Dependencies;
     std::string SHA256;
     long long Installed_Size = 0;
@@ -138,44 +161,24 @@ struct PackageMetadata {
     void compute_store_path() {
         Store_Path = SHA256 + "-" + Package + "-" + Version;
     }
+
+    json to_json() const {
+        return json{
+            {"Package", this->Package},
+            {"Version", this->Version},
+            {"Type", this->Type},
+            {"Architecture", this->Architecture},
+            {"Store_Path", this->Store_Path},
+            {"Dependencies", this->Dependencies},
+            {"SHA256", this->SHA256},
+            {"Installed-Size", this->Installed_Size},
+            {"Size", this->Size},
+            {"Filename", this->Filename},
+            {"Latest", this->Latest},
+            {"Timestamp", this->Timestamp}
+        };
+    }
 };
-
-// JSON Mapping for PackageMetadata
-inline void to_json(json& j, const PackageMetadata& p) {
-    j = json{
-        {"Package", p.Package},
-        {"Version", p.Version},
-        {"Type", p.Type},
-        {"Architecture", p.Architecture},
-        {"Store_Path", p.Store_Path},
-        {"Dependencies", p.Dependencies},
-        {"SHA256", p.SHA256},
-        {"Installed-Size", p.Installed_Size},
-        {"Size", p.Size},
-        {"Filename", p.Filename},
-        {"Latest", p.Latest},
-        {"Timestamp", p.Timestamp}
-    };
-}
-
-inline void from_json(const json& j, PackageMetadata& p) {
-    j.at("Package").get_to(p.Package);
-    j.at("Version").get_to(p.Version);
-    j.at("Type").get_to(p.Type);
-    j.at("Architecture").get_to(p.Architecture);
-    if (j.contains("Store_Path") && !j.at("Store_Path").is_null()) {
-        p.Store_Path = j.at("Store_Path").get<std::string>();
-    }
-    j.at("Dependencies").get_to(p.Dependencies);
-    j.at("SHA256").get_to(p.SHA256);
-    j.at("Installed-Size").get_to(p.Installed_Size);
-    j.at("Size").get_to(p.Size);
-    j.at("Filename").get_to(p.Filename);
-    j.at("Latest").get_to(p.Latest);
-    if (j.contains("Timestamp")) {
-        j.at("Timestamp").get_to(p.Timestamp);
-    }
-}
 
 struct UpdateManifest {
     std::string update_id;
@@ -185,32 +188,24 @@ struct UpdateManifest {
     long long total_size_byte;
     std::vector<PackageMetadata> packages;
 
-    std::string to_json() const {
-        json j = *this;
-        return j.dump();
+    json to_json() const {
+        json pkg_array = nlohmann::json::array();
+        for (const auto& pkg : packages) {
+            // Push the JSON OBJECT, not the string dump
+            pkg_array.push_back(pkg.to_json_obj()); 
+        }
+
+        return json{
+            {"Update_id", this->update_id},
+            {"Type", this->pkgs_type},
+            {"Format_version", this->format_version},
+            {"Timestamp", this->timestamp},
+            {"Total_size_byte", this->total_size_byte},
+            {"Packages", pkg_array}
+        };
     }
 };
 
-// JSON Mapping for UpdateManifest
-inline void to_json(json& j, const UpdateManifest& m) {
-    j = json{
-        {"Update_id", m.update_id},
-        {"Type", m.pkgs_type},
-        {"Format_version", m.format_version},
-        {"Timestamp", m.timestamp},
-        {"Total_size_byte", m.total_size_byte},
-        {"Packages", m.packages}
-    };
-}
-
-inline void from_json(const json& j, UpdateManifest& m) {
-    j.at("Update_id").get_to(m.update_id);
-    j.at("Type").get_to(m.pkgs_type);
-    j.at("Format_version").get_to(m.format_version);
-    j.at("Timestamp").get_to(m.timestamp);
-    j.at("Total_size_byte").get_to(m.total_size_byte);
-    j.at("Packages").get_to(m.packages);
-}
 
 /*
     BROADCASTER SERVICE UTILS
@@ -255,7 +250,7 @@ struct Target {
     std::atomic<size_t> pending_files{0};
 };
 
-inline const char* Broadcaster::get_env_var(const std::string& name){
+inline const char* get_env_var(const std::string& name){
     const char* var = std::getenv(name.data());
     if (!var) {
         throw std::runtime_error("Environment variable " + name + " is not set.");

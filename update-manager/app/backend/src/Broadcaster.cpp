@@ -1,7 +1,6 @@
 #include "Broadcaster.hpp"
 
 void Broadcaster::assign_target(const std::string& ip){
-    this->target = Target();
     this->target.args.mcast_port = this->mcast_port;
     this->target.args.mcast_target = ip;
 
@@ -23,7 +22,7 @@ void Broadcaster::assign_target(const std::string& ip){
     [this, target_args](uint32_t toi) -> void {
         try {
 
-            Target* targ = &this->target
+            Target* targ = &this->target;
             auto& files = targ->files;
             auto* transmitter_ptr = targ->transmitter.get();
 
@@ -191,8 +190,7 @@ json Broadcaster::send(
         
         std::string error_msg;
         if (!this->create_file_entry(target, file_path, error_msg)) 
-            throw std::runtime_error("Failed to add file {}: {}", file_path, error_msg);
-        
+            throw std::runtime_error("Failed to add file " + file_path + ": " + error_msg);        
         // Only attempt send if files were added successfully
         if (target.files.empty()) 
             throw std::runtime_error("No files where found for transmission");
@@ -238,9 +236,6 @@ json Broadcaster::send(
         };
     }
 
-    // Call the cleanup lambda before returning
-    cleanup();
-
     return response;
 }
 
@@ -264,7 +259,7 @@ std::string Broadcaster::create_tar_object(const UpdateManifest& manifest,
 
     // 1. Add the manifest JSON directly from memory!
     if (!manifest.packages.empty()) {
-        std::string manifest_data = manifest.to_json();
+        std::string manifest_data = manifest.to_json().dump();
         
         struct archive_entry *entry = archive_entry_new();
         archive_entry_set_pathname(entry, "manifest.json");
