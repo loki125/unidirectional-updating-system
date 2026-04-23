@@ -1,4 +1,4 @@
-FROM gcc:12
+FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y \
     git \
@@ -39,14 +39,23 @@ RUN mkdir -p deps/httplib \
 
 
 # Copy the source code
-COPY service/ . 
-COPY na_ips_list.txt . 
+COPY backend/ . 
 
 # Build application
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build
 
 # Install
-RUN cp build/broadcaster /usr/local/bin/
+RUN cp build/core*.so /usr/local/lib/python3.12/site-packages/
 
-ENTRYPOINT ["/usr/local/bin/broadcaster"]
+# Install Python deps
+COPY frontend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+ENV PYTHONUNBUFFERED=1
+
+COPY app/ /app
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

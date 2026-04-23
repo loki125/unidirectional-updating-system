@@ -10,9 +10,9 @@
 #include <nlohmann/json.hpp>
 #include "PackageService.hpp"
 
-class SearchFactory {
+class PackageFactory {
 public:
-    SearchFactory() {
+    PackageFactory() {
         _engine_creators["DebianPackageService"] = []() -> std::unique_ptr<PackageService> {
             return std::make_unique<DebianPackageService>();
         };

@@ -24,8 +24,6 @@
 
 #include "utils.hpp"
 
-using json = nlohmann::json;
-
 class Broadcaster {
 
     void assign_target(const std::string& ip);

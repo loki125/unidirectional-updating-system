@@ -19,7 +19,7 @@ void DebianPackageService::cleanup() {
     }
 }
 
-nlohmann::json DebianPackageService::_get_json(const std::string& endpoint) {
+json DebianPackageService::_get_json(const std::string& endpoint) {
     if (!client) {
         spdlog::error("HTTP client not initialized. Call init() first.");
         return nullptr;
@@ -29,8 +29,8 @@ nlohmann::json DebianPackageService::_get_json(const std::string& endpoint) {
 
     if (res && res->status == 200) {
         try {
-            return nlohmann::json::parse(res->body);
-        } catch (const nlohmann::json::parse_error& e) {
+            return json::parse(res->body);
+        } catch (const json::parse_error& e) {
             spdlog::error("Failed to parse JSON from {}: {}", endpoint, e.what());
         }
     } else {
@@ -63,32 +63,32 @@ std::string DebianPackageService::_calculate_sha256(const std::string& file_path
     return ss.str();
 }
 
-std::vector<nlohmann::json> DebianPackageService::get_package_instances(const std::string& pkg_name) {
+std::vector<json> DebianPackageService::get_package_instances(const std::string& pkg_name) {
     std::string endpoint = "/mr/binary/" + pkg_name + "/";
-    nlohmann::json data = _get_json(endpoint);
+    json data = _get_json(endpoint);
 
     if (data.is_null() || !data.contains("result")) {
         return {};
     }
 
-    return data["result"].get<std::vector<nlohmann::json>>();
+    return data["result"].get<std::vector<json>>();
 }
 
-nlohmann::json DebianPackageService::get_package_info(const std::string& pkg_name, 
+json DebianPackageService::get_package_info(const std::string& pkg_name, 
                                                      const std::string& version, 
                                                      const std::string& architecture) {
     // URL encode the version (handling characters like : and +)
     std::string encoded_version = httplib::detail::encode_url(version);
     std::string endpoint = "/mr/binary/" + pkg_name + "/" + encoded_version + "/binfiles?fileinfo=1";
     
-    nlohmann::json data = _get_json(endpoint);
+    json data = _get_json(endpoint);
     if (data.is_null()) {
         spdlog::error("Package: {}_{}_{} not found", pkg_name, version, architecture);
         return nullptr;
     }
 
-    auto arch_list = data.value("result", nlohmann::json::array());
-    auto file_info_map = data.value("fileinfo", nlohmann::json::object());
+    auto arch_list = data.value("result", json::array());
+    auto file_info_map = data.value("fileinfo", json::object());
     std::string target_hash = "";
 
     for (const auto& entry : arch_list) {
@@ -105,7 +105,7 @@ nlohmann::json DebianPackageService::get_package_info(const std::string& pkg_nam
 
     // Snapshot API structure: fileinfo[hash] is an array, we take the first element
     if (file_info_map.contains(target_hash) && !file_info_map[target_hash].empty()) {
-        nlohmann::json file_info = file_info_map[target_hash][0];
+        json file_info = file_info_map[target_hash][0];
         file_info["SHA1"] = target_hash; // Attach the hash as in Python code
         return file_info;
     }
@@ -155,7 +155,7 @@ std::string DebianPackageService::_target_arch_or_all(const std::string& pkg_nam
     std::string encoded_ver = httplib::detail::encode_url(version);
     std::string endpoint = "/mr/binary/" + pkg_name + "/" + encoded_ver + "/binfiles";
     
-    nlohmann::json data = _get_json(endpoint);
+    json data = _get_json(endpoint);
     if (data.is_null() || !data.contains("result")) {
         return "";
     }
@@ -238,7 +238,7 @@ std::string DebianPackageService::_find_best_version(
     const std::vector<std::pair<std::string, std::string>>& constraints) 
 {
     // Queries Snapshot for all versions
-    std::vector<nlohmann::json> instances = get_package_instances(pkg_name);
+    std::vector<json> instances = get_package_instances(pkg_name);
     if (instances.empty()) {
         return "";
     }
@@ -367,7 +367,7 @@ std::string DebianPackageService::get_package_file(const std::string& pkg_name,
                                                    const std::string& architecture) 
 {
     // Get binary metadata
-    nlohmann::json pkg_meta = get_package_info(pkg_name, version, architecture);
+    json pkg_meta = get_package_info(pkg_name, version, architecture);
     if (pkg_meta.empty() || pkg_meta.is_null()) {
         throw std::runtime_error("No binary found for " + pkg_name + " " + version + " (" + architecture + ")");
     }

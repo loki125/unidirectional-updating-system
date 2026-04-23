@@ -52,7 +52,7 @@ public:
      * @param pkg_name The name of the package.
      * @return A vector of JSON objects, where each represents a package instance.
      */
-    virtual std::vector<nlohmann::json> get_package_instances(const std::string& pkg_name) = 0;
+    virtual std::vector<json> get_package_instances(const std::string& pkg_name) = 0;
 
     /**
      * Fetches detailed metadata about a specific binary package instance 
@@ -63,7 +63,7 @@ public:
      * @param architecture The target hardware architecture (e.g., 'amd64').
      * @return A JSON object containing the package metadata.
      */
-    virtual nlohmann::json get_package_info(const std::string& pkg_name, const std::string& version, const std::string& architecture) = 0;
+    virtual json get_package_info(const std::string& pkg_name, const std::string& version, const std::string& architecture) = 0;
 
     /**
      * Locates the package file, downloads it to a local path, and verifies its 
@@ -108,9 +108,9 @@ public:
     void init() override;
     void cleanup() override;
     
-    std::vector<nlohmann::json> get_package_instances(const std::string& pkg_name) override;
+    std::vector<json> get_package_instances(const std::string& pkg_name) override;
     
-    nlohmann::json get_package_info(const std::string& pkg_name, 
+    json get_package_info(const std::string& pkg_name, 
                                    const std::string& version, 
                                    const std::string& architecture) override;
                                    
@@ -132,7 +132,7 @@ private:
     std::unique_ptr<httplib::Client> client;
 
     // Private Helpers
-    nlohmann::json _get_json(const std::string& endpoint);
+    json _get_json(const std::string& endpoint);
     
     bool _compare_versions(const std::string& v1, const std::string& op, const std::string& v2);
     
