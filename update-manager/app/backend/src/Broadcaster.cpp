@@ -259,7 +259,9 @@ std::string Broadcaster::create_tar_object(const UpdateManifest& manifest,
 
     // 1. Add the manifest JSON directly from memory!
     if (!manifest.packages.empty()) {
-        std::string manifest_data = manifest.to_json().dump();
+        json manifest_json = manifest.to_json();
+        spdlog::debug("Generated manifest JSON: {}", manifest_json.dump());
+        std::string manifest_data = manifest_json.dump();
         
         struct archive_entry *entry = archive_entry_new();
         archive_entry_set_pathname(entry, "manifest.json");

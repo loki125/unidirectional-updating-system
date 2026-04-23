@@ -28,7 +28,7 @@ RUN mkdir -p deps/httplib \
 # Copy Backend Source and Build C++ Module
 COPY backend/ .
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build build -j 2
+    && cmake --build build -j 1
 
 # Install the compiled C++ module so Python can import it
 RUN cp build/core*.so /usr/local/lib/python3.12/site-packages/

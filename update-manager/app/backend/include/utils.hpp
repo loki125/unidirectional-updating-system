@@ -148,7 +148,6 @@ struct PackageMetadata {
     long long Size = 0;
     std::string Filename;
     bool Latest = false;
-    std::string Timestamp = "";
 
     std::string generate_id() const {
         return Package + "_" + Version + "_" + Architecture;
@@ -175,7 +174,6 @@ struct PackageMetadata {
             {"Size", this->Size},
             {"Filename", this->Filename},
             {"Latest", this->Latest},
-            {"Timestamp", this->Timestamp}
         };
     }
 };
@@ -190,10 +188,9 @@ struct UpdateManifest {
 
     json to_json() const {
         json pkg_array = nlohmann::json::array();
-        for (const auto& pkg : packages) {
-            // Push the JSON OBJECT, not the string dump
-            pkg_array.push_back(pkg.to_json_obj()); 
-        }
+        for (const auto& pkg : this->packages) 
+            pkg_array.push_back(pkg.to_json()); 
+        
 
         return json{
             {"Update_id", this->update_id},

@@ -168,6 +168,7 @@ PackageMetadata DebianPackageService::get_package_metadata(const std::string& fi
     metadata.Architecture = arch;
     metadata.Dependencies = resolved_deps;
     metadata.SHA256 = sha256;
+    metadata.compute_store_path(); // Sets Store_Path based on SHA256, Package, and Version
     metadata.Installed_Size = control_data.count("Installed-Size") ? std::stoll(control_data["Installed-Size"]) : 0;
     
     metadata.Size = std::filesystem::file_size(file_path);
