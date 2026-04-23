@@ -24,18 +24,6 @@ class SearchFactory:
 
         return engine_cls()
 
-    async def global_refresh_metadata(self):
-        """
-        updates database for latest metadata of ALL packages from every service
-        """
-        engine = None
-        try:
-            for engine_class in self._engine_classes.values():
-                engine = engine_class()
-                await engine.refresh_metadata()
-
-        except Exception as e:
-            logging.error(f"Tried refreshing metadata for engine {engine}\n{e}")
 
 
 

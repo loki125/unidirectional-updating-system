@@ -1,6 +1,5 @@
 import asyncio
 import io
-import aiohttp
 import logging
 import tarfile
 import json
@@ -16,22 +15,7 @@ from utilitys.UpdateManifest import UpdateManifest
 class FluteBroadcast:
     def __init__(self, uri: str):
         self.broadcaster_uri = uri
-        self.session: Optional[aiohttp.ClientSession] = None
         self.version = "1.0"
-
-    async def __aenter__(self):
-        timeout = aiohttp.ClientTimeout(
-            total=None,      
-            connect=30,
-            sock_connect=30,
-            sock_read=120
-        )
-        self.session = aiohttp.ClientSession(timeout=timeout)
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
 
     async def _send(self, data: Dict, path: str) -> Dict:
         """
@@ -234,16 +218,6 @@ class FluteBroadcast:
                         await asyncio.to_thread(os.remove, f)
                     except OSError:
                         pass
-
-    async def _config_file(self, engine, pkg_name: str, version: str, arch: str) -> Tuple[Optional[PackageMetadata], Optional[str]]:
-        # Download the file
-        download_path = await engine.get_package_file(pkg_name, version, arch)
-        if not download_path:
-            logging.error(f"Failed to download package pkg_name: {pkg_name}, version: {version}, arch: {arch}")
-            return None, None
-
-        next_metadata = await engine.get_package_metadata(download_path)
-        return next_metadata, download_path
 
     async def _create_tar_object(self, manifest: UpdateManifest, file_paths: List[str], tar_path: str) -> str:
         """

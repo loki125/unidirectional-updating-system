@@ -10,7 +10,6 @@
 #include <utility>
 #include <optional>
 #include <thread>
-#include <mutex>
 #include <string>
 
 using json = nlohmann::json;
