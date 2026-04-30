@@ -49,41 +49,16 @@
             border-radius: 2px 2px 0 0;
         }
 
-        /* VS Code Style JSON Viewer */
-        .json-container {
-            background-color: #1e1e1e;
-            border-radius: 0.5rem;
-            overflow: hidden;
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-        .json-header {
-            background-color: #2d2d2d;
-            border-bottom: 1px solid #404040;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.5rem 1rem;
-        }
-        pre.json-viewer {
-            color: #d4d4d4;
-            padding: 1rem;
-            overflow-x: auto;
-            font-size: 0.85rem;
-            line-height: 1.6;
-        }
-        .json-key { color: #9cdcfe; }
-        .json-string { color: #ce9178; }
-        .json-number { color: #b5cea8; }
-        .json-boolean { color: #569cd6; }
-        .json-null { color: #569cd6; font-style: italic; }
+        /* Status Badges */
+        .status-success { background-color: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+        .status-failed { background-color: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+        .status-warning { background-color: #fef9c3; color: #a16207; border-color: #fef08a; }
 
         /* Scrollbar styling */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        pre.json-viewer::-webkit-scrollbar-thumb { background: #4b4b4b; }
-        pre.json-viewer::-webkit-scrollbar-thumb:hover { background: #6b6b6b; }
 
         /* Animations */
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -189,12 +164,10 @@
         const searchBar = document.getElementById('search-bar');
         const spinner = document.getElementById('loading-spinner');
         
-        // Modal
+        // Modal & WS
         const modal = document.getElementById('graph-modal');
         const graphImage = document.getElementById('graph-image');
         const modalLoader = document.getElementById('modal-loader');
-        
-        // WebSocket Status
         const wsPing = document.getElementById('ws-ping');
         const wsStatus = document.getElementById('ws-status');
         const wsText = document.getElementById('ws-text');
@@ -217,7 +190,6 @@
             document.getElementById('close-modal').addEventListener('click', closeModal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
             
-            // Escape key to close modal
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
             });
@@ -264,41 +236,54 @@
             }
         }
 
-        // Action Buttons Template Generator
+        // --- Helper Components ---
+
         function getActionButtons(type, id, title) {
             return `
-                <div class="flex space-x-2">
-                    <button onclick="viewGraph('${type === 'network' ? 'netgraph' : 'pkggraph'}', '${id}', '${title}')" 
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
-                        Graph
-                    </button>
-                    <button onclick="deleteItem('${type}', '${id}')" 
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 hover:border-red-200 shadow-sm transition-colors focus:ring-2 focus:ring-red-500 focus:outline-none">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        Remove
-                    </button>
-                </div>
+                <button onclick="viewGraph('${type === 'network' ? 'netgraph' : 'pkggraph'}', '${id}', '${title}')" 
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                    Graph
+                </button>
+                <button onclick="deleteItem('${type}', '${id}')" 
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 hover:border-red-200 shadow-sm transition-colors focus:ring-2 focus:ring-red-500 focus:outline-none">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
             `;
         }
 
-        function createJsonBlock(filename, jsonData, uniqueId) {
-            const rawJson = JSON.stringify(jsonData, null, 2);
-            return `
-                <div class="json-container mt-4">
-                    <div class="json-header">
-                        <span class="font-mono text-xs font-semibold text-slate-300 flex items-center gap-2">
-                            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                            ${filename}
-                        </span>
-                        <button onclick="copyText('json-${uniqueId}')" class="text-slate-400 hover:text-white transition-colors p-1" title="Copy JSON">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-                        </button>
-                    </div>
-                    <pre class="json-viewer"><code id="json-${uniqueId}">${syntaxHighlightJSON(jsonData)}</code><textarea id="raw-json-${uniqueId}" class="hidden">${rawJson}</textarea></pre>
-                </div>
-            `;
+        function getStatusBadge(status) {
+            let cls = "bg-slate-100 text-slate-700 border-slate-200";
+            const s = status ? status.toUpperCase() : "UNKNOWN";
+            
+            if (s.includes("SUCCESS")) cls = "status-success";
+            else if (s.includes("FAIL") || s.includes("CRITICAL")) cls = "status-failed";
+            else if (s.includes("SKIP") || s.includes("PARTIAL")) cls = "status-warning";
+            
+            return `<span class="px-2 py-0.5 rounded border text-[11px] font-bold uppercase tracking-wider ${cls}">${s}</span>`;
         }
+
+        function toggleElement(id) {
+            const el = document.getElementById(id);
+            if(el) el.classList.toggle('hidden');
+        }
+
+        function filterStatus(input, tableId) {
+            const filter = input.value.toUpperCase();
+            const table = document.getElementById(tableId);
+            if (!table) return;
+            const rows = table.getElementsByClassName('pkg-row');
+
+            for (let i = 0; i < rows.length; i++) {
+                const statusCell = rows[i].getElementsByClassName('status-cell')[0];
+                if (statusCell) {
+                    const txtValue = statusCell.textContent || statusCell.innerText;
+                    rows[i].style.display = txtValue.toUpperCase().indexOf(filter) > -1 ? "" : "none";
+                }
+            }
+        }
+
+        // --- Render Views ---
 
         function renderNetworks(networks) {
             if (networks.length === 0) {
@@ -312,45 +297,64 @@
             }
 
             networks.forEach((net, index) => {
+                const netId = net.net_id;
+                const title = net.network_name || net.netname || 'Unknown Network';
+                const pkgCount = Object.keys(net.packages || {}).length;
+
                 const card = document.createElement('div');
                 card.className = "bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden fade-in";
                 
-                const title = net.network_name || net.netname || 'Unknown Network'; // Fallback for old data
-
-                let html = `
-                    <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                        <div class="flex justify-between items-start flex-col sm:flex-row gap-4">
-                            <div class="flex items-start gap-4">
-                                <div class="bg-blue-100 p-2.5 rounded-lg text-blue-600 mt-1">
-                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                                </div>
-                                <div>
-                                    <h2 class="text-xl font-bold text-slate-900">${title}</h2>
-                                    <div class="flex flex-wrap gap-2 mt-2">
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">ID: ${net.net_id}</span>
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">Subnet: ${net.subnet || 'N/A'}</span>
-                                    </div>
-                                </div>
+                card.innerHTML = `
+                    <div class="p-5 flex justify-between items-center bg-white border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                        <div class="flex items-center gap-4">
+                            <div class="bg-blue-100 p-2.5 rounded-lg text-blue-600">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
                             </div>
-                            ${getActionButtons('network', net.net_id, `Network: ${title}`)}
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-900">${title}</h2>
+                                <p class="text-xs text-slate-500 font-mono mt-0.5">Subnet: ${net.subnet || 'N/A'} | ID: ${netId}</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="toggleElement('pkg-list-${index}')" class="px-4 py-1.5 bg-slate-800 text-white border border-transparent rounded-md text-sm font-medium hover:bg-slate-700 shadow-sm transition-colors focus:ring-2 focus:ring-slate-500 focus:outline-none">
+                                View Packages (${pkgCount})
+                            </button>
+                            ${getActionButtons('network', netId, title)}
                         </div>
                     </div>
-                    <div class="p-6">
-                        <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Packages</h3>
+                    
+                    <div id="pkg-list-${index}" class="hidden p-5 bg-slate-50 border-b border-slate-100">
+                        <div class="mb-4 relative max-w-sm">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            </div>
+                            <input type="text" placeholder="Filter by status (e.g. SUCCESS)..." 
+                                onkeyup="filterStatus(this, 'table-${index}')"
+                                class="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all">
+                        </div>
+
+                        <div class="overflow-x-auto bg-white rounded-lg border border-slate-200">
+                            <table class="w-full text-left text-sm" id="table-${index}">
+                                <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3 font-semibold w-1/3">Filename</th>
+                                        <th class="px-4 py-3 font-semibold w-1/4">Status</th>
+                                        <th class="px-4 py-3 font-semibold">Error Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${Object.entries(net.packages || {}).map(([sha, health]) => `
+                                        <tr class="hover:bg-slate-50 transition-colors pkg-row">
+                                            <td class="px-4 py-3 font-medium text-slate-800 break-all">${health.display_name || sha}</td>
+                                            <td class="px-4 py-3 status-cell">${getStatusBadge(health.status)}</td>
+                                            <td class="px-4 py-3 text-slate-500 italic text-xs break-words">${health.error_message || '-'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 `;
-
-                if (net.packages && Object.keys(net.packages).length > 0) {
-                    html += `<div class="space-y-4">`;
-                    let pIdx = 0;
-                    for (const [filename, jsonData] of Object.entries(net.packages)) {
-                        html += createJsonBlock(filename, jsonData, `net-${index}-${pIdx++}`);
-                    }
-                    html += `</div>`;
-                } else {
-                    html += `<p class="text-sm text-slate-500 italic">No packages associated.</p>`;
-                }
-
-                card.innerHTML = html + `</div>`;
                 networksContainer.appendChild(card);
             });
         }
@@ -367,41 +371,65 @@
             }
 
             packages.forEach((pkg, index) => {
-                const card = document.createElement('div');
-                card.className = "bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden fade-in";
-                
-                // Account for Pydantic/C++ uppercase vs internal
-                const title = pkg.Package || pkg.Filename || pkg.filename || pkg.name || pkg.SHA256 || pkg.sha256;
+                const title = pkg.Package || pkg.Filename || pkg.filename || pkg.name || pkg.SHA256;
                 const sha = pkg.SHA256 || pkg.sha256;
                 const version = pkg.Version || 'N/A';
                 const arch = pkg.Architecture || 'N/A';
 
+                const card = document.createElement('div');
+                card.className = "bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden fade-in";
+                
+                let metadataHtml = Object.entries(pkg).map(([key, val]) => {
+                    if (key === '_id' || key === 'network_health') return '';
+                    
+                    let displayVal = val;
+                    // Format Arrays nicely (like dependencies)
+                    if (Array.isArray(val)) {
+                        displayVal = val.map(v => Array.isArray(v) ? v.join(' ') : v).join(', ') || 'None';
+                    } else if (typeof val === 'object' && val !== null) {
+                        displayVal = JSON.stringify(val);
+                    }
+
+                    return `
+                        <div class="flex flex-col border-b border-slate-100 pb-2">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">${key.replace(/_/g, ' ')}</span>
+                            <span class="text-sm font-mono text-slate-800 break-words">${displayVal || '-'}</span>
+                        </div>
+                    `;
+                }).join('');
+
                 card.innerHTML = `
-                    <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                        <div class="flex justify-between items-start flex-col sm:flex-row gap-4">
-                            <div class="flex items-start gap-4">
-                                <div class="bg-indigo-100 p-2.5 rounded-lg text-indigo-600 mt-1">
-                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                                </div>
-                                <div>
-                                    <h2 class="text-xl font-bold text-slate-900 break-all">${title}</h2>
-                                    <div class="flex flex-wrap gap-2 mt-2">
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">v${version}</span>
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">${arch}</span>
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-500 font-mono">SHA: ${sha.substring(0,8)}...</span>
-                                    </div>
+                    <div class="p-5 flex justify-between items-center bg-white border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                        <div class="flex items-center gap-4">
+                            <div class="bg-indigo-100 p-2.5 rounded-lg text-indigo-600">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-slate-900 break-all">${title}</h3>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs font-medium border border-slate-200">v${version}</span>
+                                    <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs font-medium border border-slate-200">${arch}</span>
                                 </div>
                             </div>
-                            ${getActionButtons('package', sha, `Package: ${title}`)}
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="toggleElement('meta-${index}')" class="px-4 py-1.5 bg-white border border-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 shadow-sm transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                Metadata Details
+                            </button>
+                            ${getActionButtons('package', sha, title)}
                         </div>
                     </div>
-                    <div class="p-6">
-                        ${createJsonBlock('Package Metadata', pkg, `pkg-${index}`)}
+                    <div id="meta-${index}" class="hidden p-6 bg-slate-50">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                            ${metadataHtml}
+                        </div>
                     </div>
                 `;
                 packagesContainer.appendChild(card);
             });
         }
+
+        // --- Actions & APIs ---
 
         async function deleteItem(type, id) {
             if (!confirm(`Are you sure you want to remove this ${type}?`)) return;
@@ -460,16 +488,6 @@
             modalLoader.classList.remove('hidden');
         }
 
-        // Copy JSON logic
-        function copyText(elementId) {
-            const rawText = document.getElementById(`raw-${elementId}`).value;
-            navigator.clipboard.writeText(rawText).then(() => {
-                showToast("Copied JSON to clipboard!");
-            }).catch(err => {
-                console.error("Copy failed", err);
-            });
-        }
-
         function initWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
@@ -500,27 +518,6 @@
                 wsText.innerText = "Offline";
                 setTimeout(initWebSocket, 5000);
             };
-        }
-
-        // VS Code style JSON highlighter
-        function syntaxHighlightJSON(jsonObj) {
-            let json = JSON.stringify(jsonObj, null, 2);
-            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
-                let cls = 'json-number';
-                if (/^"/.test(match)) {
-                    if (/:$/.test(match)) {
-                        cls = 'json-key';
-                    } else {
-                        cls = 'json-string';
-                    }
-                } else if (/true|false/.test(match)) {
-                    cls = 'json-boolean';
-                } else if (/null/.test(match)) {
-                    cls = 'json-null';
-                }
-                return '<span class="' + cls + '">' + match + '</span>';
-            });
         }
 
         function showToast(message) {
