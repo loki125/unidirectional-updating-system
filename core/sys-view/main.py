@@ -105,7 +105,6 @@ manager = ConnectionManager()
 
 
 # THE PROCESSOR LOGIC
-
 def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
     """Parses the incoming report using Pydantic, updates Mongo, and notifies the frontend."""
     try:
@@ -136,9 +135,9 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
         if pkg.error_message:
             health_obj["error_message"] = pkg.error_message
 
+        # We store it in DB using the SHA256 as the key. This prevents MongoDB errors if filenames have periods in them (like bash.deb)
         network_package_updates[pkg_sha256] = health_obj
         
-        # Display name logic: use metadata Filename if available, else report filename, else SHA
         display_name = pkg.filename or pkg_sha256
         if pkg.metadata and pkg.metadata.Filename:
             display_name = pkg.metadata.Filename
@@ -150,7 +149,7 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
         })
 
         if pkg.metadata:
-            # Upsert package metadata. model_dump(by_alias=True) ensures 'Installed-Size' maps correctly
+            # Upsert package metadata
             packages_col.update_one(
                 {"SHA256": pkg_sha256}, 
                 {"$set": pkg.metadata.model_dump(by_alias=True)}, 
@@ -177,16 +176,25 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
 
 # HELPER LOGIC
 def enrich_network_data(net_doc: dict) -> dict:
+    """Formats the network dictionary to send clean status/name data to the frontend UI"""
     if "packages" in net_doc:
         enriched_packages = {}
         for p_hash, health in net_doc["packages"].items():
-            pkg_data = packages_col.find_one({"SHA256": p_hash}, {"_id": 0})
-            if pkg_data:
-                filename = pkg_data.get("Filename") or pkg_data.get("Package") or p_hash
-                pkg_data["network_health"] = health
-                enriched_packages[filename] = pkg_data
+            # Get the display name from the package DB without loading the entire heavy metadata
+            pkg_meta = packages_col.find_one({"SHA256": p_hash}, {"Filename": 1, "Package": 1, "_id": 0})
+            
+            # Create a clean dictionary for the UI
+            ui_health = {
+                "status": health.get("status", "UNKNOWN"),
+                "error_message": health.get("error_message", "")
+            }
+
+            if pkg_meta:
+                ui_health["display_name"] = pkg_meta.get("Filename") or pkg_meta.get("Package") or p_hash
             else:
-                enriched_packages[p_hash] = {"network_health": health, "warning": "Metadata not available"}
+                ui_health["display_name"] = p_hash
+                
+            enriched_packages[p_hash] = ui_health
         
         net_doc["packages"] = enriched_packages
     return net_doc
@@ -255,6 +263,7 @@ def remove_pkg(req: RemovePackageReq):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Package not found")
     
+    # Since we now use SHA256 as the key in the DB, this unset works perfectly.
     networks_col.update_many({}, {"$unset": {f"packages.{req.sha256}": ""}})
     return {"message": f"Package {req.sha256} removed successfully"}
 
