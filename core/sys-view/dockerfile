@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Install Graphviz system packages
+RUN apt-get update && apt-get install -y \
+    graphviz \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    fastapi==0.110.0 \
+    "uvicorn[standard]==0.29.0" \
+    pymongo==4.6.2 \
+    graphviz==0.20.1 \
+    websockets==12.0 \
+    pydantic==2.6.4
+
+COPY . .
+
+EXPOSE 9090
+EXPOSE 5005/udp
+
+# Command to run the FastAPI application on port 9090
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9090"]

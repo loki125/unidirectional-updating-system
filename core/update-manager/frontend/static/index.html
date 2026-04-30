@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Update Manager</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body { 
+            -webkit-font-smoothing: antialiased; 
+            background-color: #f8fafc; /* very light slate */
+            color: #0f172a; /* slate-900 */
+        }
+        
+        /* Crisp, structural UI components */
+        .ui-panel {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1; /* slate-300 */
+            border-radius: 4px;
+        }
+
+        .ui-input {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            padding: 8px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .ui-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+
+        .ui-btn-primary {
+            background-color: #0f172a;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: 1px solid #0f172a;
+            transition: background-color 0.15s;
+        }
+        .ui-btn-primary:hover { background-color: #334155; }
+
+        .ui-btn-danger {
+            background-color: #ffffff;
+            color: #ef4444;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: 1px solid #ef4444;
+            transition: all 0.15s;
+        }
+        .ui-btn-danger:hover { background-color: #fef2f2; border-color: #dc2626; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 0px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Terminal Log area */
+        .terminal-scroll::-webkit-scrollbar-thumb { background: #475569; }
+        .terminal-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- TOP NAVIGATION & HEADER -->
+    <header class="bg-white border-b border-slate-300 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            
+            <div class="flex flex-col sm:flex-row sm:items-center gap-6">
+                <div>
+                    <h1 class="text-xl font-mono font-bold tracking-tight uppercase">Update_Manager</h1>
+                    <p class="text-[11px] font-mono text-slate-500 font-bold tracking-wider mt-1">STATION_ID: ALPHA // LOCALHOST</p>
+                </div>
+                
+                <!-- View Tabs -->
+                <div class="flex gap-2 border-l sm:pl-6 border-slate-200">
+                    <button onclick="switchTab('registry')" id="tab-registry" class="px-4 py-1.5 text-sm font-mono font-bold bg-slate-100 text-slate-900 border border-slate-300 rounded">
+                        REGISTRY
+                    </button>
+                    <button onclick="switchTab('logs')" id="tab-logs" class="relative px-4 py-1.5 text-sm font-mono font-bold bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 border border-transparent rounded transition-colors">
+                        SYSTEM_LOGS
+                        <span id="log-indicator" class="hidden absolute top-1 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <div id="clock" class="text-sm font-mono font-bold text-slate-600 bg-slate-50 px-3 py-1.5 border border-slate-200 rounded">--:--:--</div>
+                <button onclick="stopService()" class="ui-btn-danger uppercase">STOP_SERVICE</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl w-full mx-auto p-6">
+        
+        <!-- ========================================== -->
+        <!-- VIEW 1: REGISTRY (Default)                 -->
+        <!-- ========================================== -->
+        <div id="view-registry" class="space-y-6">
+            
+            <!-- Horizontal Filter Bar -->
+            <section class="ui-panel p-5">
+                <h2 class="text-xs font-mono font-bold text-slate-500 uppercase tracking-wider mb-4">QUERY_FILTERS</h2>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div>
+                        <label class="text-[10px] font-mono font-bold text-slate-700 block mb-1.5">SEARCH_NAME</label>
+                        <input id="searchName" type="text" placeholder="libc6" class="ui-input w-full">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-mono font-bold text-slate-700 block mb-1.5">OS_TYPE</label>
+                        <input id="searchType" type="text" value="Debian" class="ui-input w-full">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-mono font-bold text-slate-700 block mb-1.5">ARCHITECTURE</label>
+                        <select id="searchArch" class="ui-input w-full appearance-none">
+                            <option value="amd64">amd64</option>
+                            <option value="arm64">arm64</option>
+                            <option value="i386">i386</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button onclick="checkInstance()" class="ui-btn-primary w-full">FETCH_INSTANCES</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Area -->
+            <section class="ui-panel flex flex-col min-h-[500px]">
+                <div class="px-5 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                    <h2 class="text-sm font-mono font-bold text-slate-900 uppercase">Instance_Registry</h2>
+                    <span id="recordCount" class="text-[11px] font-mono font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">0 RECORDS</span>
+                </div>
+
+                <div id="metadataContainer" class="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 content-start flex-grow">
+                    <!-- Default Empty State -->
+                    <div class="col-span-full flex justify-center items-center py-20 text-slate-400 font-mono text-sm">
+                        AWAITING_QUERY...
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- VIEW 2: SYSTEM LOGS                        -->
+        <!-- ========================================== -->
+        <div id="view-logs" class="hidden h-[calc(100vh-160px)]">
+            <section class="bg-[#0f111a] border border-slate-300 rounded shadow-sm h-full flex flex-col">
+                <div class="px-5 py-3 border-b border-[#2a2f4c] bg-[#1a1d2e] flex justify-between items-center">
+                    <h2 class="text-xs font-mono font-bold text-slate-300 uppercase tracking-widest">SYSTEM_LOG</h2>
+                    <button onclick="document.getElementById('logContent').innerHTML = ''" class="text-[10px] font-mono font-bold text-slate-400 hover:text-white">CLEAR_LOG</button>
+                </div>
+                
+                <div id="logContent" class="terminal-scroll p-5 overflow-y-auto font-mono text-[12px] leading-relaxed text-slate-300 space-y-1.5 flex-grow">
+                    <div class="text-slate-500 opacity-50">System initialized. Awaiting input...</div>
+                </div>
+            </section>
+        </div>
+
+    </main>
+
+    <!-- ========================================== -->
+    <!-- INFO MODAL                                 -->
+    <!-- ========================================== -->
+    <div id="infoModal" class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="ui-panel max-w-2xl w-full flex flex-col max-h-[90vh] shadow-xl">
+            
+            <div class="px-6 py-4 flex justify-between items-center border-b border-slate-200 bg-slate-50">
+                <h2 class="text-sm font-mono font-bold text-slate-900">PACKAGE_INSPECTOR</h2>
+                <button onclick="closeModal()" class="text-[11px] font-mono font-bold text-slate-500 hover:text-red-500 tracking-wider transition-colors">
+                    [CLOSE_X]
+                </button>
+            </div>
+            
+            <div id="modalBody" class="p-6 overflow-y-auto bg-white flex-grow">
+                <!-- Info content generated here -->
+            </div>
+
+            <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex gap-3">
+                <button id="modalBroadcastBtn" class="ui-btn-primary flex-1">CONFIRM_BROADCAST</button>
+                <button onclick="closeModal()" class="px-6 py-2 font-mono text-sm font-bold border border-slate-300 text-slate-700 bg-white hover:bg-slate-100 rounded transition-colors">
+                    CANCEL
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab State Management
+        let currentTab = 'registry';
+
+        function switchTab(tabId) {
+            currentTab = tabId;
+            const regView = document.getElementById('view-registry');
+            const logView = document.getElementById('view-logs');
+            const regBtn = document.getElementById('tab-registry');
+            const logBtn = document.getElementById('tab-logs');
+            const indicator = document.getElementById('log-indicator');
+
+            if (tabId === 'registry') {
+                regView.classList.remove('hidden');
+                logView.classList.add('hidden');
+                
+                // Style Active Tab
+                regBtn.className = "px-4 py-1.5 text-sm font-mono font-bold bg-slate-100 text-slate-900 border border-slate-300 rounded";
+                logBtn.className = "relative px-4 py-1.5 text-sm font-mono font-bold bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 border border-transparent rounded transition-colors";
+            } else {
+                regView.classList.add('hidden');
+                logView.classList.remove('hidden');
+                indicator.classList.add('hidden'); // clear notification
+
+                // Style Active Tab
+                logBtn.className = "relative px-4 py-1.5 text-sm font-mono font-bold bg-slate-100 text-slate-900 border border-slate-300 rounded";
+                regBtn.className = "px-4 py-1.5 text-sm font-mono font-bold bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 border border-transparent rounded transition-colors";
+            }
+        }
+
+        // UI CLOCK
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toLocaleTimeString('en-US', { hour12: false });
+        }, 1000);
+
+        function log(msg, error = false) {
+            const content = document.getElementById('logContent');
+            const indicator = document.getElementById('log-indicator');
+            
+            // Clear placeholder text
+            if (content.innerHTML.includes("Awaiting input...")) content.innerHTML = "";
+
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+            const colorClass = error ? 'text-red-400 font-bold' : 'text-slate-300';
+            const prefix = error ? '[ERR]' : '[SYS]';
+            
+            // Prepend new log entries
+            content.innerHTML = `<div class="${colorClass}"><span class="text-slate-500 mr-2">[${time}] ${prefix}</span>${msg}</div>` + content.innerHTML;
+
+            // Notify user if they are not looking at the logs tab
+            if (currentTab !== 'logs') {
+                indicator.classList.remove('hidden');
+            }
+        }
+
+        function stopService() {
+            if(confirm("CRITICAL: STOP ALL BROADCAST SERVICES?")) {
+                log("SYSTEM_SHUTDOWN_SIGNAL_SENT", true);
+                alert("Service stop signal triggered.");
+            }
+        }
+
+        async function checkInstance() {
+            const name = document.getElementById('searchName').value;
+            const type = document.getElementById('searchType').value;
+            const arch = document.getElementById('searchArch').value;
+            const container = document.getElementById('metadataContainer');
+
+            if(!name) return log("INPUT_REQUIRED: PKG_NAME", true);
+
+            log(`FETCHING: ${name} (${arch})...`);
+            
+            container.innerHTML = `<div class="col-span-full text-slate-500 font-mono text-sm py-10">...SCANNING_DATABASE...</div>`;
+
+            try {
+                // Adjust params as per your backend
+                const res = await fetch(`/instance?package_name=${name}&type=${type}&architecture=${arch}`);
+                const data = await res.json();
+
+                container.innerHTML = "";
+                
+                if (data.error || !Array.isArray(data) || data.length === 0) {
+                    container.innerHTML = `<div class="col-span-full font-mono text-sm text-slate-400 py-10">ZERO_RESULTS_RETURNED</div>`;
+                    document.getElementById('recordCount').innerText = "0 RECORDS";
+                    return;
+                }
+
+                document.getElementById('recordCount').innerText = `${data.length} RECORDS`;
+
+                data.forEach(pkg => {
+                    const card = document.createElement('div');
+                    card.className = "ui-panel p-4 cursor-pointer hover:border-slate-800 transition-colors flex flex-col";
+                    card.onclick = () => fetchPackageInfo(pkg.package_name || name, pkg.version, pkg.architecture || arch);
+                    
+                    card.innerHTML = `
+                        <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-1">Identifier</div>
+                        <div class="font-mono font-bold text-slate-900 text-base mb-3 truncate" title="${pkg.package_name || name}">${pkg.package_name || name}</div>
+                        
+                        <div class="grid grid-cols-2 gap-2 mb-4">
+                            <div>
+                                <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-0.5">Version</div>
+                                <div class="font-mono text-sm text-slate-700 truncate">${pkg.version}</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-0.5">Arch</div>
+                                <div class="font-mono text-sm text-slate-700">${pkg.architecture || arch}</div>
+                            </div>
+                        </div>
+
+                        <div class="mt-auto pt-3 border-t border-slate-100 flex justify-end">
+                            <span class="text-[10px] font-mono font-bold text-blue-600 uppercase tracking-wider">INSPECT_DETAILS ></span>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (e) {
+                log("FETCH_ERROR: SERVER_UNREACHABLE", true);
+                container.innerHTML = `<div class="col-span-full font-mono text-sm text-red-500 py-10">ERROR: IO_CONNECTION_LOST</div>`;
+            }
+        }
+
+        async function fetchPackageInfo(name, version, arch) {
+            log(`INSPECTING: ${name}_${version}`);
+            try {
+                const res = await fetch(`/info?package_name=${name}&version=${version}&architecture=${arch}`);
+                const data = await res.json();
+                
+                openModal(data, name, version, arch);
+            } catch (e) {
+                log("INFO_FETCH_FAILURE", true);
+            }
+        }
+
+        function openModal(data, name, version, arch) {
+            const modalBody = document.getElementById('modalBody');
+            const broadcastBtn = document.getElementById('modalBroadcastBtn');
+            
+            let html = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">`;
+            for (const [key, value] of Object.entries(data)) {
+                html += `
+                    <div class="p-3 border border-slate-200 rounded bg-slate-50">
+                        <label class="text-[10px] font-mono font-bold text-slate-500 uppercase block tracking-wider mb-1">${key}</label>
+                        <div class="font-mono text-sm text-slate-800 break-words">${value}</div>
+                    </div>
+                `;
+            }
+            html += `</div>`;
+            
+            modalBody.innerHTML = html;
+            broadcastBtn.onclick = () => {
+                closeModal();
+                executeBroadcast(name, version, arch);
+            };
+
+            document.getElementById('infoModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('infoModal').classList.add('hidden');
+        }
+
+        async function executeBroadcast(name, version, arch) {
+            log(`INIT_BROADCAST: ${name}...`);
+            try {
+                const res = await fetch(`/update?package_name=${name}&version=${version}&architecture=${arch}`, {method: 'POST'});
+                if(res.ok) log(`SUCCESS: ${name} BROADCAST_COMPLETE`);
+                else log(`FAILED: ${name} BROADCAST_REJECTED`, true);
+            } catch (e) {
+                log("IO_CONNECTION_LOST", true);
+            }
+        }
+    </script>
+</body>
+</html>

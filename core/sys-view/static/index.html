@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System View</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Custom Styles -->
+    <style>
+        /* Smooth transitions */
+        body { -webkit-font-smoothing: antialiased; }
+        
+        /* Nav Tabs */
+        .nav-btn {
+            position: relative;
+            color: #94a3b8; /* slate-400 */
+            transition: all 0.2s ease;
+        }
+        .nav-btn:hover { color: #f8fafc; }
+        .nav-btn.active { color: #ffffff; font-weight: 600; }
+        .nav-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1rem;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background-color: #3b82f6; /* blue-500 */
+            border-radius: 2px 2px 0 0;
+        }
+
+        /* VS Code Style JSON Viewer */
+        .json-container {
+            background-color: #1e1e1e;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        .json-header {
+            background-color: #2d2d2d;
+            border-bottom: 1px solid #404040;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+        }
+        pre.json-viewer {
+            color: #d4d4d4;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+        .json-key { color: #9cdcfe; }
+        .json-string { color: #ce9178; }
+        .json-number { color: #b5cea8; }
+        .json-boolean { color: #569cd6; }
+        .json-null { color: #569cd6; font-style: italic; }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        pre.json-viewer::-webkit-scrollbar-thumb { background: #4b4b4b; }
+        pre.json-viewer::-webkit-scrollbar-thumb:hover { background: #6b6b6b; }
+
+        /* Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        
+        .toast-enter { transform: translateY(100%); opacity: 0; }
+        .toast-active { transform: translateY(0); opacity: 1; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo & Nav -->
+                <div class="flex items-center space-x-8">
+                    <div class="flex items-center space-x-2 text-blue-400">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                        <span class="text-xl font-bold tracking-tight text-white">System View</span>
+                    </div>
+                    <div class="hidden md:flex space-x-6 items-center h-full">
+                        <button id="nav-networks" class="nav-btn active text-sm h-full flex items-center">Networks</button>
+                        <button id="nav-packages" class="nav-btn text-sm h-full flex items-center">Packages</button>
+                    </div>
+                </div>
+                <!-- Status -->
+                <div class="flex items-center space-x-3 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700 shadow-inner">
+                    <div class="relative flex h-3 w-3">
+                        <span id="ws-ping" class="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span id="ws-status" class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    </div>
+                    <span id="ws-text" class="text-xs font-medium text-slate-300">Offline</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Header Controls -->
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+            <h1 id="page-title" class="text-2xl font-bold text-slate-900">Networks</h1>
+            <div class="relative w-full sm:w-80 group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <input type="text" id="search-bar" placeholder="Search resources..." 
+                    class="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm transition-all">
+            </div>
+        </div>
+
+        <!-- Content Containers -->
+        <div id="loading-spinner" class="hidden flex justify-center items-center py-20">
+            <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        </div>
+        
+        <div id="networks-container" class="view-container grid grid-cols-1 gap-6"></div>
+        <div id="packages-container" class="view-container hidden grid grid-cols-1 gap-6"></div>
+
+    </main>
+
+    <!-- Graph Modal -->
+    <div id="graph-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity">
+        <div class="bg-white rounded-xl overflow-hidden shadow-2xl max-w-6xl w-full flex flex-col max-h-[90vh] ring-1 ring-slate-200 fade-in">
+            <div class="px-6 py-4 flex justify-between items-center bg-white border-b border-slate-100">
+                <h3 id="modal-title" class="text-lg font-semibold text-slate-800">Dependency Graph</h3>
+                <button id="close-modal" class="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 overflow-auto flex-grow bg-slate-50 flex justify-center items-center min-h-[300px]">
+                <div id="modal-loader" class="flex flex-col items-center text-blue-500 gap-3">
+                    <svg class="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span class="text-sm font-medium">Generating Graph...</span>
+                </div>
+                <img id="graph-image" class="hidden max-w-none shadow-sm rounded-lg border border-slate-200 bg-white" src="" alt="Graph">
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-lg shadow-xl border border-slate-700 flex items-center gap-3 toast-enter z-50">
+        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <span id="toast-message" class="text-sm font-medium">Updated successfully!</span>
+    </div>
+
+    <!-- Frontend Logic -->
+    <script>
+        // State Management
+        let currentView = 'networks'; 
+        let searchTimeout = null;
+
+        // DOM Elements
+        const navNetworks = document.getElementById('nav-networks');
+        const navPackages = document.getElementById('nav-packages');
+        const networksContainer = document.getElementById('networks-container');
+        const packagesContainer = document.getElementById('packages-container');
+        const pageTitle = document.getElementById('page-title');
+        const searchBar = document.getElementById('search-bar');
+        const spinner = document.getElementById('loading-spinner');
+        
+        // Modal
+        const modal = document.getElementById('graph-modal');
+        const graphImage = document.getElementById('graph-image');
+        const modalLoader = document.getElementById('modal-loader');
+        
+        // WebSocket Status
+        const wsPing = document.getElementById('ws-ping');
+        const wsStatus = document.getElementById('ws-status');
+        const wsText = document.getElementById('ws-text');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            switchView('networks');
+            initWebSocket();
+
+            navNetworks.addEventListener('click', () => switchView('networks'));
+            navPackages.addEventListener('click', () => switchView('packages'));
+
+            searchBar.addEventListener('input', (e) => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    fetchData(currentView, e.target.value);
+                }, 300);
+            });
+
+            document.getElementById('close-modal').addEventListener('click', closeModal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+            
+            // Escape key to close modal
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
+            });
+        });
+
+        function switchView(view) {
+            currentView = view;
+            searchBar.value = '';
+            
+            if (view === 'networks') {
+                pageTitle.innerText = 'Networks';
+                navNetworks.classList.add('active');
+                navPackages.classList.remove('active');
+                networksContainer.classList.remove('hidden');
+                packagesContainer.classList.add('hidden');
+            } else {
+                pageTitle.innerText = 'Packages';
+                navPackages.classList.add('active');
+                navNetworks.classList.remove('active');
+                packagesContainer.classList.remove('hidden');
+                networksContainer.classList.add('hidden');
+            }
+            fetchData(view, '');
+        }
+
+        async function fetchData(view, query) {
+            networksContainer.innerHTML = '';
+            packagesContainer.innerHTML = '';
+            spinner.classList.remove('hidden');
+            
+            try {
+                const url = query ? `/${view}?q=${encodeURIComponent(query)}` : `/${view}`;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error("Failed to fetch");
+                const data = await res.json();
+                
+                spinner.classList.add('hidden');
+                if (view === 'networks') renderNetworks(data);
+                else renderPackages(data);
+            } catch (err) {
+                spinner.classList.add('hidden');
+                const container = view === 'networks' ? networksContainer : packagesContainer;
+                container.innerHTML = `<div class="p-6 bg-red-50 text-red-600 rounded-lg border border-red-200">Error loading data. Check server connection.</div>`;
+            }
+        }
+
+        // Action Buttons Template Generator
+        function getActionButtons(type, id, title) {
+            return `
+                <div class="flex space-x-2">
+                    <button onclick="viewGraph('${type === 'network' ? 'netgraph' : 'pkggraph'}', '${id}', '${title}')" 
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                        Graph
+                    </button>
+                    <button onclick="deleteItem('${type}', '${id}')" 
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 hover:border-red-200 shadow-sm transition-colors focus:ring-2 focus:ring-red-500 focus:outline-none">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        Remove
+                    </button>
+                </div>
+            `;
+        }
+
+        function createJsonBlock(filename, jsonData, uniqueId) {
+            const rawJson = JSON.stringify(jsonData, null, 2);
+            return `
+                <div class="json-container mt-4">
+                    <div class="json-header">
+                        <span class="font-mono text-xs font-semibold text-slate-300 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            ${filename}
+                        </span>
+                        <button onclick="copyText('json-${uniqueId}')" class="text-slate-400 hover:text-white transition-colors p-1" title="Copy JSON">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </button>
+                    </div>
+                    <pre class="json-viewer"><code id="json-${uniqueId}">${syntaxHighlightJSON(jsonData)}</code><textarea id="raw-json-${uniqueId}" class="hidden">${rawJson}</textarea></pre>
+                </div>
+            `;
+        }
+
+        function renderNetworks(networks) {
+            if (networks.length === 0) {
+                networksContainer.innerHTML = `
+                    <div class="text-center py-12 bg-white rounded-xl border border-slate-200 border-dashed">
+                        <svg class="mx-auto h-12 w-12 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                        <h3 class="mt-2 text-sm font-medium text-slate-900">No networks</h3>
+                        <p class="mt-1 text-sm text-slate-500">No network reports received yet.</p>
+                    </div>`;
+                return;
+            }
+
+            networks.forEach((net, index) => {
+                const card = document.createElement('div');
+                card.className = "bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden fade-in";
+                
+                const title = net.network_name || net.netname || 'Unknown Network'; // Fallback for old data
+
+                let html = `
+                    <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                        <div class="flex justify-between items-start flex-col sm:flex-row gap-4">
+                            <div class="flex items-start gap-4">
+                                <div class="bg-blue-100 p-2.5 rounded-lg text-blue-600 mt-1">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-slate-900">${title}</h2>
+                                    <div class="flex flex-wrap gap-2 mt-2">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">ID: ${net.net_id}</span>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">Subnet: ${net.subnet || 'N/A'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ${getActionButtons('network', net.net_id, `Network: ${title}`)}
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Packages</h3>
+                `;
+
+                if (net.packages && Object.keys(net.packages).length > 0) {
+                    html += `<div class="space-y-4">`;
+                    let pIdx = 0;
+                    for (const [filename, jsonData] of Object.entries(net.packages)) {
+                        html += createJsonBlock(filename, jsonData, `net-${index}-${pIdx++}`);
+                    }
+                    html += `</div>`;
+                } else {
+                    html += `<p class="text-sm text-slate-500 italic">No packages associated.</p>`;
+                }
+
+                card.innerHTML = html + `</div>`;
+                networksContainer.appendChild(card);
+            });
+        }
+
+        function renderPackages(packages) {
+            if (packages.length === 0) {
+                packagesContainer.innerHTML = `
+                    <div class="text-center py-12 bg-white rounded-xl border border-slate-200 border-dashed">
+                        <svg class="mx-auto h-12 w-12 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                        <h3 class="mt-2 text-sm font-medium text-slate-900">No packages</h3>
+                        <p class="mt-1 text-sm text-slate-500">No package data available.</p>
+                    </div>`;
+                return;
+            }
+
+            packages.forEach((pkg, index) => {
+                const card = document.createElement('div');
+                card.className = "bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden fade-in";
+                
+                // Account for Pydantic/C++ uppercase vs internal
+                const title = pkg.Package || pkg.Filename || pkg.filename || pkg.name || pkg.SHA256 || pkg.sha256;
+                const sha = pkg.SHA256 || pkg.sha256;
+                const version = pkg.Version || 'N/A';
+                const arch = pkg.Architecture || 'N/A';
+
+                card.innerHTML = `
+                    <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                        <div class="flex justify-between items-start flex-col sm:flex-row gap-4">
+                            <div class="flex items-start gap-4">
+                                <div class="bg-indigo-100 p-2.5 rounded-lg text-indigo-600 mt-1">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                                </div>
+                                <div>
+                                    <h2 class="text-xl font-bold text-slate-900 break-all">${title}</h2>
+                                    <div class="flex flex-wrap gap-2 mt-2">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">v${version}</span>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600">${arch}</span>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-500 font-mono">SHA: ${sha.substring(0,8)}...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ${getActionButtons('package', sha, `Package: ${title}`)}
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        ${createJsonBlock('Package Metadata', pkg, `pkg-${index}`)}
+                    </div>
+                `;
+                packagesContainer.appendChild(card);
+            });
+        }
+
+        async function deleteItem(type, id) {
+            if (!confirm(`Are you sure you want to remove this ${type}?`)) return;
+
+            const endpoint = type === 'network' ? '/rm_network' : '/rm_package';
+            const payload = type === 'network' ? { net_id: id } : { sha256: id };
+
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} removed successfully`);
+                    fetchData(currentView, searchBar.value); 
+                } else {
+                    const err = await res.json();
+                    alert(`Error: ${err.detail}`);
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Network request failed.');
+            }
+        }
+
+        function viewGraph(endpoint, id, title) {
+            document.getElementById('modal-title').innerText = title;
+            graphImage.classList.add('hidden');
+            modalLoader.classList.remove('hidden');
+            modal.classList.remove('hidden');
+
+            const paramKey = endpoint === 'netgraph' ? 'net_id' : 'pkg_sha256';
+            const imageUrl = `/${endpoint}?${paramKey}=${id}&file_format=png&t=${new Date().getTime()}`;
+
+            const imgLoad = new Image();
+            imgLoad.onload = () => {
+                graphImage.src = imageUrl;
+                modalLoader.classList.add('hidden');
+                graphImage.classList.remove('hidden');
+            };
+            imgLoad.onerror = () => {
+                modalLoader.innerHTML = `<svg class="w-10 h-10 text-red-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg><span class="text-red-500 font-medium text-sm">Error generating graph. Check logs.</span>`;
+            };
+            imgLoad.src = imageUrl;
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            graphImage.src = "";
+            modalLoader.innerHTML = `
+                <svg class="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span class="text-sm font-medium">Generating Graph...</span>
+            `;
+            modalLoader.classList.remove('hidden');
+        }
+
+        // Copy JSON logic
+        function copyText(elementId) {
+            const rawText = document.getElementById(`raw-${elementId}`).value;
+            navigator.clipboard.writeText(rawText).then(() => {
+                showToast("Copied JSON to clipboard!");
+            }).catch(err => {
+                console.error("Copy failed", err);
+            });
+        }
+
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+            ws.onopen = () => {
+                wsPing.classList.replace('bg-red-400', 'bg-green-400');
+                wsPing.classList.add('animate-ping');
+                wsStatus.classList.replace('bg-red-500', 'bg-green-500');
+                wsText.innerText = "Live";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'NEW_DATA') {
+                        showToast(`Live update: ${data.network_name || data.netname}`);
+                        fetchData(currentView, searchBar.value); 
+                    }
+                } catch (e) {
+                    console.error('WS Parse Error:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                wsPing.classList.replace('bg-green-400', 'bg-red-400');
+                wsPing.classList.remove('animate-ping');
+                wsStatus.classList.replace('bg-green-500', 'bg-red-500');
+                wsText.innerText = "Offline";
+                setTimeout(initWebSocket, 5000);
+            };
+        }
+
+        // VS Code style JSON highlighter
+        function syntaxHighlightJSON(jsonObj) {
+            let json = JSON.stringify(jsonObj, null, 2);
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                let cls = 'json-number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'json-key';
+                    } else {
+                        cls = 'json-string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'json-boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'json-null';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            });
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = message;
+            toast.classList.add('toast-active');
+            
+            setTimeout(() => {
+                toast.classList.remove('toast-active');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
