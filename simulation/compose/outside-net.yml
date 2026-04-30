@@ -1,0 +1,31 @@
+x-name: daedalus_um
+
+services:
+  update-manager:
+    build: ${UPDATE_MANAGER_PATH}
+    image: update-manager:latest
+    container_name: update-manager
+    restart: "no"
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "${UPDATE_MANAGER_PORT}:8080"
+    volumes:
+      - broadcast_volume:/data/broadcast_volume
+    env_file:
+      - .env
+    environment:
+      MCAST_PORT: ${FLUTE_PORT}
+      MCAST_IP: ${MULTICAST_IP}
+      UPDATE_FILE_PATH: "/data/broadcast_volume"
+    networks:
+      outside-net:
+        ipv4_address: 172.30.0.10
+
+networks:
+  outside-net:
+    external: true
+    name: outside-net
+
+volumes:
+  broadcast_volume:
