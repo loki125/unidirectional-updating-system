@@ -238,6 +238,13 @@
 
         // --- Helper Components ---
 
+        function formatTimestamp(ts) {
+            if (!ts) return 'Unknown Time';
+            // Pydantic/Python timestamps are often in seconds. Multiply by 1000 if needed.
+            const d = new Date(ts > 10000000000 ? ts : ts * 1000);
+            return d.toLocaleString();
+        }
+
         function getActionButtons(type, id, title) {
             return `
                 <button onclick="viewGraph('${type === 'network' ? 'netgraph' : 'pkggraph'}', '${id}', '${title}')" 
@@ -260,7 +267,7 @@
             else if (s.includes("FAIL") || s.includes("CRITICAL")) cls = "status-failed";
             else if (s.includes("SKIP") || s.includes("PARTIAL")) cls = "status-warning";
             
-            return `<span class="px-2 py-0.5 rounded border text-[11px] font-bold uppercase tracking-wider ${cls}">${s}</span>`;
+            return `<span class="px-2 py-0.5 rounded border text-[11px] font-bold uppercase tracking-wider whitespace-nowrap ${cls}">${s}</span>`;
         }
 
         function toggleElement(id) {
@@ -268,11 +275,11 @@
             if(el) el.classList.toggle('hidden');
         }
 
-        function filterStatus(input, tableId) {
+        function filterStatus(input, containerId) {
             const filter = input.value.toUpperCase();
-            const table = document.getElementById(tableId);
-            if (!table) return;
-            const rows = table.getElementsByClassName('pkg-row');
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const rows = container.getElementsByClassName('pkg-row');
 
             for (let i = 0; i < rows.length; i++) {
                 const statusCell = rows[i].getElementsByClassName('status-cell')[0];
@@ -299,7 +306,10 @@
             networks.forEach((net, index) => {
                 const netId = net.net_id;
                 const title = net.network_name || net.netname || 'Unknown Network';
-                const pkgCount = Object.keys(net.packages || {}).length;
+                
+                // Ensure updates array exists and sort by timestamp descending
+                const updates = (net.updates || []).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                const updatesCount = updates.length;
 
                 const card = document.createElement('div');
                 card.className = "bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden fade-in";
@@ -316,42 +326,89 @@
                             </div>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="toggleElement('pkg-list-${index}')" class="px-4 py-1.5 bg-slate-800 text-white border border-transparent rounded-md text-sm font-medium hover:bg-slate-700 shadow-sm transition-colors focus:ring-2 focus:ring-slate-500 focus:outline-none">
-                                View Packages (${pkgCount})
+                            <button onclick="toggleElement('updates-list-${index}')" class="px-4 py-1.5 bg-slate-800 text-white border border-transparent rounded-md text-sm font-medium hover:bg-slate-700 shadow-sm transition-colors focus:ring-2 focus:ring-slate-500 focus:outline-none">
+                                View Updates (${updatesCount})
                             </button>
                             ${getActionButtons('network', netId, title)}
                         </div>
                     </div>
                     
-                    <div id="pkg-list-${index}" class="hidden p-5 bg-slate-50 border-b border-slate-100">
+                    <div id="updates-list-${index}" class="hidden p-5 bg-slate-50 border-b border-slate-100">
                         <div class="mb-4 relative max-w-sm">
                             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                             </div>
-                            <input type="text" placeholder="Filter by status (e.g. SUCCESS)..." 
-                                onkeyup="filterStatus(this, 'table-${index}')"
+                            <input type="text" placeholder="Filter packages by status..." 
+                                onkeyup="filterStatus(this, 'updates-container-${index}')"
                                 class="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all">
                         </div>
 
-                        <div class="overflow-x-auto bg-white rounded-lg border border-slate-200">
-                            <table class="w-full text-left text-sm" id="table-${index}">
-                                <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
-                                    <tr>
-                                        <th class="px-4 py-3 font-semibold w-1/3">Filename</th>
-                                        <th class="px-4 py-3 font-semibold w-1/4">Status</th>
-                                        <th class="px-4 py-3 font-semibold">Error Message</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">
-                                    ${Object.entries(net.packages || {}).map(([sha, health]) => `
-                                        <tr class="hover:bg-slate-50 transition-colors pkg-row">
-                                            <td class="px-4 py-3 font-medium text-slate-800 break-all">${health.display_name || sha}</td>
-                                            <td class="px-4 py-3 status-cell">${getStatusBadge(health.status)}</td>
-                                            <td class="px-4 py-3 text-slate-500 italic text-xs break-words">${health.error_message || '-'}</td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
+                        <div id="updates-container-${index}" class="flex flex-col gap-4">
+                            ${updatesCount === 0 ? '<p class="text-sm text-slate-500">No updates recorded.</p>' : ''}
+                            
+                            ${updates.map((upd, uIdx) => {
+                                const pkgs = upd.packages || {};
+                                const pkgCount = Object.keys(pkgs).length;
+                                
+                                return `
+                                <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                                    <!-- Update Header -->
+                                    <div class="p-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors" onclick="toggleElement('update-pkgs-${index}-${uIdx}')">
+                                        <div class="flex items-center gap-3">
+                                            <div class="bg-slate-100 p-2 rounded-md text-slate-500">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                            </div>
+                                            <div>
+                                                <h4 class="text-sm font-bold text-slate-900">${upd.bundle_name || 'Unnamed Bundle'}</h4>
+                                                <p class="text-xs text-slate-500">${formatTimestamp(upd.timestamp)}</p>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-4">
+                                            <span class="text-xs font-medium text-slate-500">${pkgCount} packages</span>
+                                            ${getStatusBadge(upd.overall_status)}
+                                            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Packages Detail (Collapsible) -->
+                                    <div id="update-pkgs-${index}-${uIdx}" class="hidden border-t border-slate-100 bg-slate-50 p-4">
+                                        
+                                        <!-- Update Error Message if exists -->
+                                        ${upd.error_message ? `
+                                            <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-mono break-words">
+                                                <strong>Error:</strong> ${upd.error_message}
+                                            </div>
+                                        ` : ''}
+
+                                        <!-- Packages Table -->
+                                        ${pkgCount === 0 ? `
+                                            <p class="text-sm text-slate-500 italic">No packages processed in this update.</p>
+                                        ` : `
+                                            <div class="overflow-x-auto bg-white rounded-lg border border-slate-200">
+                                                <table class="w-full text-left text-sm">
+                                                    <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                                        <tr>
+                                                            <th class="px-4 py-3 font-semibold w-1/3">Filename</th>
+                                                            <th class="px-4 py-3 font-semibold w-1/4">Status</th>
+                                                            <th class="px-4 py-3 font-semibold">Error Message</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-slate-100">
+                                                        ${Object.entries(pkgs).map(([sha, health]) => `
+                                                            <tr class="hover:bg-slate-50 transition-colors pkg-row">
+                                                                <td class="px-4 py-3 font-medium text-slate-800 break-all">${health.display_name || sha}</td>
+                                                                <td class="px-4 py-3 status-cell">${getStatusBadge(health.status)}</td>
+                                                                <td class="px-4 py-3 text-slate-500 italic text-xs break-words">${health.error_message || '-'}</td>
+                                                            </tr>
+                                                        `).join('')}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        `}
+                                    </div>
+                                </div>
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                 `;
@@ -383,7 +440,6 @@
                     if (key === '_id' || key === 'network_health') return '';
                     
                     let displayVal = val;
-                    // Format Arrays nicely (like dependencies)
                     if (Array.isArray(val)) {
                         displayVal = val.map(v => Array.isArray(v) ? v.join(' ') : v).join(', ') || 'None';
                     } else if (typeof val === 'object' && val !== null) {

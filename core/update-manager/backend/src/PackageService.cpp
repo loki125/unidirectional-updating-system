@@ -499,11 +499,9 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
     // hierarchical tree at the very end.
     std::vector<std::pair<std::string, std::string>> dependency_edges;
 
-    // =========================================================================
     // LAMBDA: check_and_queue
     // Evaluates constraints for a specific package requirement. It decides if 
     // the package needs to be downloaded, or RE-downloaded if rules got stricter.
-    // =========================================================================
     auto check_and_queue = [&](const std::string& pkg, 
                                const std::vector<std::pair<std::string, std::string>>& reqs, 
                                const PackageMetadata& parent_metadata, 
@@ -572,10 +570,8 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
         }
     };
 
-    // =========================================================================
     // LAMBDA: process_control_data
     // Reads a dictionary of control file key-values and extracts dependency logic.
-    // =========================================================================
     auto process_control_data = [&](const std::map<std::string, std::string>& c_data, 
                                     const PackageMetadata& parent_metadata) 
     {
@@ -628,10 +624,7 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
         }
     };
 
-    // =========================================================================
-    // START MAIN RESOLUTION LOOP
-    // =========================================================================
-    
+    // START MAIN RESOLUTION LOOP    
     // 1. Process the root package we were given
     std::map<std::string, std::string> root_control = _get_raw_control_data(file_path);
     enqueued.insert(metadata.Package);
@@ -690,9 +683,7 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
         process_control_data(curr_control, pkg_meta);
     }
 
-    // =========================================================================
     // POST-PROCESSING: Link the Dependency Graph
-    // =========================================================================
     // Now that all packages are downloaded and we know their final versions, 
     // we iterate through the edges we recorded and build the tree structure 
     // inside the metadata objects.
@@ -724,9 +715,7 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
         }
     }
 
-    // =========================================================================
     // FINALIZE AND RETURN
-    // =========================================================================
     // We return a flat list of all resolved dependency metadata (excluding the original root package).
     // The hierarchy is preserved inside the 'Dependencies' vector of each PackageMetadata object.
     std::vector<PackageMetadata> final_metadata_list;

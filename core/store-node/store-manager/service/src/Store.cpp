@@ -1,6 +1,5 @@
 #include "Store.hpp"
 #include <spdlog/spdlog.h> 
-
 #include <chrono>
 
 void Store::run()
@@ -14,7 +13,7 @@ void Store::run()
         fs::path entry_path;
         bool file_found = false;
 
-        //Locate update tarball
+        // Locate update tarball
         try {
             for (auto& entry : fs::directory_iterator(this->receiver_vol)) {
                 if (entry.is_regular_file()) {
@@ -63,20 +62,20 @@ void Store::run()
             );
 
             std::vector<std::pair<fs::path, json>> target_packages;
-            std::vector<std::string> target_paths;
             RecipeMaker maker(manifest);
             
             provider_map global_provider_map;
             forest_map forests;
 
             try {
+                // Phase 1: Move new files to store volume
                 for (const auto& package : package_vector) {
                     fs::path f_path_fs;
                     std::string path = package.at(pkg::PATH).get<std::string>();
                     f_path_fs = this->store_vol / path;
 
                     if (fs::exists(f_path_fs)) {
-                        spdlog::info("[STORE] pkg {} already exists, skipping.", package.at(pkg::FILENAME).get<std::string>());
+                        spdlog::info("[STORE] pkg {} already exists, skipping storage.", package.at(pkg::FILENAME).get<std::string>());
                         continue;
                     }
 
@@ -88,16 +87,27 @@ void Store::run()
                     fs::rename(processing_dir / filename, source_path);
                     
                     target_packages.push_back({f_path_fs, package});
-                    target_paths.push_back(source_path.string());
-
                     spdlog::debug("[STORE] File storage complete for: {}", filename);
                 }
 
-                global_provider_map = pkg_reader->build_provider_map(target_paths);
+                // Phase 2: Collect ALL dependencies for the provider map
+                std::vector<std::string> all_required_paths;
+                for (const auto& pkg_node : maker.get_global_sort().get_sorted_pkgs()) {
+                    fs::path p = this->store_vol / pkg_node.at(pkg::PATH).get<std::string>() / pkg_node.at(pkg::FILENAME).get<std::string>();
+                    
+                    if (fs::exists(p)) {
+                        all_required_paths.push_back(p.string());
+                    } else {
+                        spdlog::warn("[STORE] Expected dependency missing from disk: {}", p.string());
+                    }
+                }
+
+                // Build provider map from the full dependency graph
+                global_provider_map = pkg_reader->build_provider_map(all_required_paths);
                 forests = pkg_reader->generate_forests(global_provider_map, maker.get_global_sort());
 
             } catch (const std::exception& e) {
-                spdlog::error("[STORE] Physical storage failed at package: {}, stopping update processing.\n{}", target_paths.back(), e.what());
+                spdlog::error("[STORE] Physical storage/mapping failed, stopping update processing: {}", e.what());
                 for (const auto& [dir_path, package_data] : target_packages) {
                     if (!dir_path.empty() && fs::exists(dir_path)) 
                         fs::remove_all(dir_path);
@@ -108,13 +118,12 @@ void Store::run()
                 throw; 
             }
         
+            // Phase 3: DB inserts and Recipe Generation (only for NEW target_packages)
             for (const auto& [dir_path, package_data] : target_packages) {
                 std::string filename = package_data.at(pkg::FILENAME).get<std::string>();
                 
                 json pkg_report;
                 pkg_report[report::FILENAME] = filename;
-                
-                // Assuming you have pkg::SHA256, otherwise change to "sha256"
                 std::string pkg_sha256 = package_data.value(pkg::SHA256, "UNKNOWN_SHA");
 
                 try {
