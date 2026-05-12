@@ -7,8 +7,11 @@
 #include <mutex>
 #include <array>
 #include <tuple>
+#include <list>
 #include <unistd.h>
 #include <spawn.h>
+#include <map>
+#include <stdexcept>
 #include <sys/wait.h>
 
 // Third-party headers
@@ -19,10 +22,17 @@
 #define CONNECTION_TIMEOUT 10 // seconds
 #define READ_TIMEOUT 60 // seconds
 #define MAX_DOWNLOAD_RETRIES 3
+#define PROCESSING "processing"
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 extern char **environ; // Required for posix_spawn so Linker wont get angry
+
+using forest_map = std::map<fs::path, std::map<std::string, fs::path>>;
+// hash_path : List{provided_name, provided_soname}
+using provider_vector = std::vector<std::tuple<std::string, std::string, bool>>; // provided_name, provided_soname, is_executable
+using provider_map = std::map<fs::path, provider_vector>;
+using constraint_map = std::map<std::string, std::vector<std::pair<std::string, std::string>>>;
 
 /*
     PACKGET SERVICE UTILS
@@ -42,6 +52,22 @@ struct CommandResult {
     int exit_code;
     std::string stdout_res;
     std::string stderr_res;
+};
+
+enum class ConflictType { SOFT, HARD };
+struct EdgeToCut {
+    std::size_t u;
+    std::size_t v;
+    ConflictType type;
+};
+
+class HardConflictException : public std::runtime_error {
+public:
+    std::string pkg_name;
+    std::string pkg_version;
+
+    HardConflictException(const std::string& name, const std::string& ver) 
+        : std::runtime_error("Hard conflict cycle detected"), pkg_name(name), pkg_version(ver) {}
 };
 
 /**
@@ -148,6 +174,7 @@ struct PackageMetadata {
     long long Installed_Size = 0;
     long long Size = 0;
     std::string Filename;
+    json Recipe = {};
     bool Latest = false;
 
     std::string generate_id() const {
@@ -156,6 +183,10 @@ struct PackageMetadata {
 
     static std::string build_id(const std::string& package, const std::string& version, const std::string& arch) {
         return package + "_" + version + "_" + arch;
+    }
+
+    bool is_init() const {
+        return !Package.empty() && !Version.empty() && !Architecture.empty();
     }
 
     void compute_store_path() {
@@ -174,6 +205,7 @@ struct PackageMetadata {
             {"Installed-Size", this->Installed_Size},
             {"Size", this->Size},
             {"Filename", this->Filename},
+            {"Recipe", this->Recipe},
             {"Latest", this->Latest},
         };
     }
@@ -204,7 +236,36 @@ struct UpdateManifest {
     }
 };
 
+namespace recipe {
+    constexpr const char* PACKAGE_NAME = "package_name";
+    constexpr const char* VERSION = "version";
+    constexpr const char* MOUNT_REQ = "required_mounts";
+    constexpr const char* MOUNT_SYS = "system_mounts";
+    constexpr const char* MOUNT_INS = "mount_instructions";
+    constexpr const char* STATUS = "status";
+    constexpr const char* SYMLINK_FOREST = "symlink_forest";
+    constexpr const char* PROVIDER_MAP = "provider_map";
+    constexpr const char* IS_SYSTEM = "is_system";
+}
 
+static const std::vector<std::string> ALLOWED_ROOTS = {
+    "usr/", "bin/", "lib/", "lib64/", "sbin/", "etc/", "opt/", "games/"
+};
+
+static const std::vector<std::string> BINARY_PATHS = {
+    "bin/", "sbin/", "games/"
+};
+
+// Define helper lambdas for readability
+inline bool has_allowed_prefix(const std::string& p) {
+    return std::any_of(ALLOWED_ROOTS.begin(), ALLOWED_ROOTS.end(),
+        [&](const auto& prefix) { return p.compare(0, prefix.size(), prefix) == 0; });
+}
+
+inline bool is_in_bin_dir(const std::string& p) {
+    return std::any_of(BINARY_PATHS.begin(), BINARY_PATHS.end(),
+        [&](const auto& dir) { return p.find(dir) != std::string::npos; });
+};
 /*
     BROADCASTER SERVICE UTILS
     -------------------------

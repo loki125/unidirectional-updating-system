@@ -17,8 +17,7 @@ PYBIND11_MODULE(core, m) {
             py::arg("type"),
             py::arg("pkg"),
             py::arg("version"),
-            py::arg("arch"),
-            py::arg("volume_path")
+            py::arg("arch")
         )
 
         .def("get_package_instances",

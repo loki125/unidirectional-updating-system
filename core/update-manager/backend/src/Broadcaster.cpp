@@ -50,14 +50,14 @@ void Broadcaster::assign_target(const std::string& ip){
     spdlog::info("inserted ip {} to target", ip);
 }
 
-bool Broadcaster::create_file_entry(Target& targ, const std::string& file_path, std::string& out_error) noexcept {
+bool Broadcaster::create_file_entry(Target& targ, const std::string& tar_path, std::string& out_error) noexcept {
     
     ft_arguments arguments = targ.args;
     
     try {
         // 1. Prepare paths
         fs::path base_dir = this->update_path;
-        fs::path full_path_obj = base_dir / file_path;
+        fs::path full_path_obj = base_dir / tar_path;
         
         // 2. Validate
         if (!fs::exists(full_path_obj) || !fs::is_regular_file(full_path_obj)) {
@@ -66,7 +66,7 @@ bool Broadcaster::create_file_entry(Target& targ, const std::string& file_path, 
             return false;
         }
 
-        targ.files.emplace_back(nullptr, full_path_obj.string(), file_path);
+        targ.files.emplace_back(nullptr, full_path_obj.string(), tar_path);
 
         auto& entry = targ.files.back();
 
@@ -109,29 +109,23 @@ bool Broadcaster::create_file_entry(Target& targ, const std::string& file_path, 
     }
 }
 
-json Broadcaster::send(
-    const std::string& main_package_path, 
-    PackageMetadata& update_metadata, 
-    PackageService* engine, 
-    const std::string& broadcaster_path) 
+json Broadcaster::send(const fs::path& tar_path) 
 {
-    std::string file_path;
     std::vector<std::string> file_list;
+    UpdateBuilder builder;
     json response;
 
-    // --- Clean Up Lambda ---
     struct ScopeGuard {
         std::function<void()> f;
         ~ScopeGuard() { f(); }
     } cleanup_guard{[&]() {
-        // Clean up the actual generated tar file
-        if (!file_path.empty() && std::filesystem::exists(file_path)) {
+        if (fs::exists(tar_path)) {
             std::error_code ec;
-            std::filesystem::remove(file_path, ec);
+            std::filesystem::remove(tar_path.string(), ec);
         }
         
         for (const std::string& f : file_list) {
-            if (f != main_package_path && std::filesystem::exists(f)) {
+            if (std::filesystem::exists(f)) {
                 std::error_code ec;
                 std::filesystem::remove(f, ec);
             }
@@ -139,58 +133,13 @@ json Broadcaster::send(
     }};
 
     try {
-        std::vector<PackageMetadata> packages_for_manifest;
-        long long total_size_byte = 0;
-        
-        // 1. Initialize lists with the main package
-        file_list.push_back(main_package_path);
-        packages_for_manifest.push_back(update_metadata);
-        total_size_byte += update_metadata.Size;
 
-        // 2. Delegate dependency resolution to the engine
-        // This single call dynamically resolves, checks constraints, queues, 
-        // and downloads ALL recursive dependencies.
-        std::vector<PackageMetadata> dependencies_metadata = engine->get_recursive_dependencies(
-            update_metadata, 
-            main_package_path
-        );
-
-        // 3. Add the resolved dependencies to our build lists
-        for (const auto& dep_meta : dependencies_metadata) {
-            std::string dep_file_path = dep_meta.Filename; 
-            
-            // If the file is not already in the list, add it
-            if (std::find(file_list.begin(), file_list.end(), dep_file_path) == file_list.end()) {
-                file_list.push_back(dep_file_path);
-                packages_for_manifest.push_back(dep_meta);
-                total_size_byte += dep_meta.Size;
-            }
-        }
-
-        // 4. Construct the Manifest
-        UpdateManifest manifest;
-        manifest.update_id = update_metadata.generate_id();
-        manifest.pkgs_type = update_metadata.Type;
-        manifest.format_version = "1.0"; // Replace with self.version equivalent
-        manifest.total_size_byte = total_size_byte;
-        manifest.packages = packages_for_manifest;
-
-        // Generate current timestamp (ISO 8601 format)
-        auto now = std::chrono::system_clock::now();
-        std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-        std::stringstream ss;
-        ss << std::put_time(std::gmtime(&now_time), "%Y-%m-%dT%H:%M:%SZ");
-        manifest.timestamp = ss.str();
-
-        // 5. Finalize: Create the tarball
-        file_path = this->create_tar_object(manifest, file_list, broadcaster_path);
-
-                if (!this->target.transmitter) 
+        if (!this->target.transmitter) 
             throw std::runtime_error("Target has no transmitter");
         
         std::string error_msg;
-        if (!this->create_file_entry(target, file_path, error_msg)) 
-            throw std::runtime_error("Failed to add file " + file_path + ": " + error_msg);        
+        if (!this->create_file_entry(target, tar_path.string(), error_msg)) 
+            throw std::runtime_error("Failed to add file " + tar_path.filename().string() + ": " + error_msg);        
         // Only attempt send if files were added successfully
         if (target.files.empty()) 
             throw std::runtime_error("No files where found for transmission");
@@ -228,7 +177,7 @@ json Broadcaster::send(
         
     } catch (const std::exception& e) {
         spdlog::error("Broadcasting update failed for package {}. Error: {}", 
-                      update_metadata.generate_id(), e.what());
+                      tar_path.filename().string(), e.what());
         
         response = {
             {"status", "error"}, 
@@ -237,86 +186,6 @@ json Broadcaster::send(
     }
 
     return response;
-}
-
-
-std::string Broadcaster::create_tar_object(const UpdateManifest& manifest, 
-                                           const std::vector<std::string>& file_paths, 
-                                           const std::string& tar_path) 
-{
-    // Define the file path (using std::filesystem)
-    std::string new_file_path = (std::filesystem::path(tar_path) / (manifest.update_id + ".tar")).string();
-
-    // Initialize libarchive writer
-    struct archive *tar = archive_write_new();
-    
-    // Use the standard tar format (POSIX pax)
-    archive_write_set_format_pax_restricted(tar); 
-    if (archive_write_open_filename(tar, new_file_path.c_str()) != ARCHIVE_OK) {
-        archive_write_free(tar);
-        throw std::runtime_error("Failed to open tar file for writing: " + new_file_path);
-    }
-
-    // 1. Add the manifest JSON directly from memory!
-    if (!manifest.packages.empty()) {
-        json manifest_json = manifest.to_json();
-        spdlog::debug("Generated manifest JSON: {}", manifest_json.dump());
-        std::string manifest_data = manifest_json.dump();
-        
-        struct archive_entry *entry = archive_entry_new();
-        archive_entry_set_pathname(entry, "manifest.json");
-        archive_entry_set_size(entry, manifest_data.size());
-        archive_entry_set_filetype(entry, AE_IFREG); // Regular file
-        archive_entry_set_perm(entry, 0644);         // Standard permissions
-        
-        archive_write_header(tar, entry);
-        archive_write_data(tar, manifest_data.c_str(), manifest_data.size());
-        
-        archive_entry_free(entry);
-    }
-
-    // 2. Add all physical component files
-    for (const std::string& path : file_paths) {
-        if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) {
-            archive_write_close(tar);
-            archive_write_free(tar);
-            throw std::runtime_error("Missing component file: " + path);
-        }
-
-        struct archive_entry *file_entry = archive_entry_new();
-        
-        // Ensure we don't include the full local folder structure in the tar
-        // ( equivalent to arcname=os.path.basename(path) in python )
-        std::string base_name = std::filesystem::path(path).filename().string();
-        archive_entry_set_pathname(file_entry, base_name.c_str());
-        
-        // Set metadata
-        size_t file_size = std::filesystem::file_size(path);
-        archive_entry_set_size(file_entry, file_size);
-        archive_entry_set_filetype(file_entry, AE_IFREG);
-        archive_entry_set_perm(file_entry, 0644);
-        
-        archive_write_header(tar, file_entry);
-
-        // Read the file and stream it into the tar archive in chunks (Memory Efficient)
-        std::ifstream ifs(path, std::ios::binary);
-        char buff[8192]; // 8 KB Buffer
-        while (ifs.read(buff, sizeof(buff))) {
-            archive_write_data(tar, buff, ifs.gcount());
-        }
-        // Write the last partial chunk if any
-        if (ifs.gcount() > 0) {
-            archive_write_data(tar, buff, ifs.gcount());
-        }
-
-        archive_entry_free(file_entry);
-    }
-
-    // Finalize and close the archive
-    archive_write_close(tar);
-    archive_write_free(tar);
-
-    return new_file_path;
 }
 
 Broadcaster::Broadcaster() {

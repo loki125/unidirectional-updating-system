@@ -3,6 +3,8 @@
 #include <string>
 #include <cstdlib>
 #include <functional>
+#include <tuple>
+#include <set>
 
 #include <mongocxx/client.hpp>
 #include <mongocxx/instance.hpp>
@@ -18,7 +20,7 @@ namespace fs = std::filesystem;
 
 using forest_map = std::map<fs::path, std::map<std::string, fs::path>>;
 // hash_path : List{provided_name, provided_soname}
-using provider_vector = std::vector<std::pair<std::string, std::string>>;
+using provider_vector = std::vector<std::tuple<std::string, std::string, bool>>; // provided_name, provided_soname, is_executable
 using provider_map = std::map<fs::path, provider_vector>;
 
 
@@ -29,6 +31,7 @@ namespace pkg {
     constexpr const char* PATH = "Store_Path";
     constexpr const char* SHA256 = "SHA256";
     constexpr const char* DEPS = "Dependencies";
+    constexpr const char* RECIPE = "Recipe";
 }
 namespace report {
     constexpr const char* BUNDLE_NAME = "bundle_name";
@@ -65,17 +68,16 @@ namespace recipe {
     constexpr const char* MOUNT_REQ = "required_mounts";
     constexpr const char* MOUNT_SYS = "system_mounts";
     constexpr const char* MOUNT_INS = "mount_instructions";
-    constexpr const char* SCRIPTS = "scripts";
+    constexpr const char* STATUS = "status";
     constexpr const char* SYMLINK_FOREST = "symlink_forest";
     constexpr const char* PROVIDER_MAP = "provider_map";
     constexpr const char* IS_SYSTEM = "is_system";
 }
-namespace script {
-    constexpr const char* PRE_OVERLAY = "pre_overlay";
-    constexpr const char* IN_OVERLAY = "in_overlay";
-    constexpr const char* POST_INSTALL = "postinst";
-    constexpr const char* PRE_INSTALL = "preinst";
-}
+
+inline const std::set<std::string> SKIP_FIELDS = {
+    recipe::STATUS
+};
+
 namespace env {
     // MongoDB Environment Variable Keys
     constexpr const char* MONGO_URI = "MONGO_ISOLATED_URI";
@@ -128,3 +130,34 @@ inline std::string exec_command(const std::string& cmd) {
     }
     return result;
 }
+
+inline void sanitize_store_paths(json& j) {
+    if (j.is_string()) {
+        std::string s = j.get<std::string>();
+        
+        if (!s.empty() && s[0] == '{') {
+            try {
+                json nested = json::parse(s);
+                sanitize_store_paths(nested); 
+                j = nested.dump();            
+                return;
+            } catch (...) {}
+        }
+        std::replace(s.begin(), s.end(), ':', '_');
+        j = s;
+    } 
+    else if (j.is_object()) {
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (SKIP_FIELDS.find(it.key()) != SKIP_FIELDS.end()) {
+                continue; 
+            }            
+            sanitize_store_paths(it.value()); 
+        }
+    } 
+    else if (j.is_array()) {
+        for (auto& element : j) {
+            sanitize_store_paths(element); 
+         }
+    }
+}
+

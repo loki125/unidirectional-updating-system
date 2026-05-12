@@ -31,12 +31,8 @@ set_target_properties(flute PROPERTIES
 add_executable(StoreManager 
     main.cpp
     src/Receiver.cpp 
-    src/Algorithms.cpp 
-    src/Graphs.cpp
     src/Store.cpp
     src/TarExtractor.cpp
-    src/PackageReader.cpp
-    src/Recipe.cpp
     src/Reporter.cpp
 )
 

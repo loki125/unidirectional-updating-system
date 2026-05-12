@@ -47,8 +47,11 @@ PackageGraph::PackageGraph(const std::vector<Package>& packages)
     
 }
 
-const Package &PackageGraph::get_package(std::size_t id) const
-{
+const Package& PackageGraph::get_package(std::size_t id) const {
+    return this->id_to_pkg[id];
+}
+
+Package& PackageGraph::get_package(std::size_t id) {
     return this->id_to_pkg[id];
 }
 
@@ -81,7 +84,7 @@ std::size_t PackageGraph::add_pkg(const Package& pkg){
     else{
         auto [found_pkg, found_id] = *it;
 
-        if(!pkg.package_json.is_null()){
+        if(pkg.package_metadata.is_init()){
             id_to_pkg[found_id] = pkg;
             pkg_to_id.erase(found_pkg);
             pkg_to_id[pkg] = found_id;

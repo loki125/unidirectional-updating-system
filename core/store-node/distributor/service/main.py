@@ -1,10 +1,10 @@
 from io import BytesIO
-from typing import Dict
+import json
 import zipfile
 from fastapi import FastAPI, HTTPException
 import os
 
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from DB import PackageDB
 
 service = FastAPI()
@@ -74,3 +74,20 @@ async def get_download_package(Store_path: str):
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=pkg.zip"}
     )
+
+@service.get("/recipe_pkg")
+async def get_recipe_pkg(Store_path: str):
+    folder_path = os.path.join(STORE, Store_path)
+    
+    if not os.path.isdir(folder_path):
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_path}")
+
+    json_path = os.path.join(folder_path, "recipe.json")
+    if not os.path.exists(json_path) or not os.path.isfile(json_path):
+        raise HTTPException(status_code=404, detail="recipe.json not found in package folder")
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            return JSONResponse(content=json.load(f))
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="recipe.json is corrupted or invalid JSON")

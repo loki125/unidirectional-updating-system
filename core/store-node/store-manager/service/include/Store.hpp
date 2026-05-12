@@ -1,12 +1,11 @@
 #pragma once
 
-#include "Algorithms.hpp"
-#include "TarExtractor.hpp"
 
 #include <nlohmann/json.hpp> 
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#include <algorithm>
 #include <iostream>
 
 #include <mongocxx/client.hpp>
@@ -21,8 +20,7 @@ using bsoncxx::builder::basic::kvp;
 using bsoncxx::builder::basic::make_document;
 
 #include "utils.hpp"
-#include "Recipe.hpp"
-#include "PackageReader.hpp"
+#include "TarExtractor.hpp"
 
 class Store {
 private:
@@ -31,6 +29,8 @@ private:
     mongocxx::instance db_inst;
     struct db_init pkg_db;
     struct db_init report_db;
+
+    void _bundle_package(const json& recipe, const json& metadata);
 
 public:
 

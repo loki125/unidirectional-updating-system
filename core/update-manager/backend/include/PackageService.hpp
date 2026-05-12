@@ -20,9 +20,13 @@
 // Third-party headers
 #include <nlohmann/json.hpp>
 #include <httplib.h>
+#include <archive.h>
+#include <archive_entry.h>
 #include <openssl/sha.h>
 #include <spdlog/spdlog.h>
 
+#include "Graphs.hpp"
+#include "Algorithms.hpp"
 #include "utils.hpp"
 
 /**
@@ -31,8 +35,11 @@
  */
 class PackageService {
 public:
-    // Virtual destructor is required for C++ abstract base classes
+    PackageService(fs::path download_dir) : download_path(std::move(download_dir)) {}
+    
     virtual ~PackageService() = default;
+
+    fs::path download_path;
 
     /**
      * Initializes the package service, typically by creating necessary resources 
@@ -96,13 +103,23 @@ public:
      * @param file_path The local path to the root package file.
      * @return A vector of PackageMetadata objects representing all resolved dependencies.
      */
-    virtual std::vector<PackageMetadata> get_recursive_dependencies(const PackageMetadata& metadata, const std::string& file_path) = 0;
+    virtual std::vector<PackageMetadata> get_recursive_dependencies(const PackageMetadata& metadata, const std::string& file_path, const constraint_map& injected_constraints) = 0;
+
+    virtual bool is_system_pkg(const std::string& pkg_name) = 0;
+
+    virtual provider_map build_provider_map(const std::vector<PackageMetadata>& all_pkgs) = 0;
+
+    virtual forest_map generate_forests(const provider_map& global_provider_map, const GSO& global_sort) = 0;
+
+    virtual json get_status(const std::string& path) = 0;
+
 };
 
 class DebianPackageService : public PackageService {
 public:
-    DebianPackageService() = default;
-    virtual ~DebianPackageService() = default;
+    DebianPackageService(fs::path download_dir) : PackageService(download_dir) {}
+    
+    ~DebianPackageService() override = default;
 
     // Interface Implementation
     void init() override;
@@ -121,7 +138,16 @@ public:
     PackageMetadata get_package_metadata(const std::string& file_path) override;
     
     std::vector<PackageMetadata> get_recursive_dependencies(const PackageMetadata& metadata, 
-                                                            const std::string& file_path) override;
+                                                            const std::string& file_path,
+                                                            const constraint_map& injected_constraints) override;
+
+    bool is_system_pkg(const std::string& pkg_name) override;
+
+    provider_map build_provider_map(const std::vector<PackageMetadata>& all_pkgs) override;
+
+    forest_map generate_forests(const provider_map& global_provider_map, const GSO& global_sort) override ;
+
+    json get_status(const std::string& path) override;
 
 private:
     // Constants
@@ -154,10 +180,8 @@ private:
     std::string _calculate_sha1(const std::string& file_path);
     std::string _calculate_sha256(const std::string& file_path);
 
-    // Dependency Resolution Context
-    struct ResolutionTask {
-        std::string pkg_name;
-        std::vector<std::pair<std::string, std::string>> constraints;
-        std::shared_ptr<PackageMetadata> parent;
-    };
+    std::vector<std::string> get_elf_tags(const std::string& path, const std::string& tag);
+
+    std::optional<std::string> extract_soname_from_archive(struct archive* a);
+
 };

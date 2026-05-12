@@ -8,12 +8,16 @@
 
 #include "Broadcaster.hpp"
 #include "PackageFactory.hpp"
+#include "UpdateBuilder.hpp"
 #include "utils.hpp"
 
 class CoreService {
 private:
+    fs::path volume_path;
+
     Broadcaster broadcaster;
     PackageFactory factory;
+    UpdateBuilder update_builder;
 
 public:
     CoreService();
@@ -24,8 +28,7 @@ public:
         std::string type,
         std::string pkg,
         std::string version,
-        std::string arch,
-        std::string volume_path
+        std::string arch
     );
 
     std::vector<std::string> get_package_instances(

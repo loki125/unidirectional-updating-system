@@ -24,13 +24,12 @@
 
 #include "PackageFactory.hpp"
 #include "PackageService.hpp"
+#include "UpdateBuilder.hpp"
 #include "utils.hpp"
 
 class Broadcaster {
 
     void assign_target(const std::string& ip);
-
-    std::string create_tar_object(const UpdateManifest& manifest, const std::vector<std::string>& file_paths, const std::string& tar_path);
     
     bool create_file_entry(Target& targ, const std::string& file_path, std::string& out_error) noexcept;
     
@@ -50,7 +49,7 @@ public:
 
     ~Broadcaster();
 
-    json send(const std::string& main_package_path, PackageMetadata& update_metadata, PackageService* engine, const std::string& broadcaster_path);
+    json send(const fs::path& tar_path);
     
 };
 

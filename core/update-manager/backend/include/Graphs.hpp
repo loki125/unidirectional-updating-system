@@ -5,7 +5,6 @@
 #include <string>
 #include <optional>
 #include <unordered_map>
-#include <nlohmann/json.hpp>
 
 #include "utils.hpp"
 
@@ -29,14 +28,14 @@ private:
 struct Package {
     std::string name;
     std::string version;
-    json package_json;
+    PackageMetadata package_metadata;
     std::vector<Package> dependencies; // Recursive definition
 
-    Package(const json pkg_json) {
-        package_json = pkg_json;
+    Package(const PackageMetadata pkg_metadata) {
+        package_metadata = pkg_metadata;
 
-        name = package_json.at(pkg::NAME).get<std::string>();
-        version = package_json.at(pkg::VERSION).get<std::string>();
+        name = package_metadata.Package;
+        version = package_metadata.Version;
     }
     Package(const std::string& name, const std::string& version) : name(name), version(version) {}
     Package() = default;
@@ -64,6 +63,8 @@ public:
     Graph& graph();
 
     const Package& get_package(std::size_t id) const;
+
+    Package& get_package(std::size_t id);
 
     std::optional<std::size_t> get_id(const Package& pkg) const;
 
