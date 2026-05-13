@@ -17,11 +17,11 @@ Reporter::Reporter() :
     netname(get_env_var(env::NETNAME)), 
     subnet(get_env_var(env::SUBNET)), 
 
-    worker_threads(std::thread::hardware_concurrency()) // One worker per CPU core
+    worker_threads(std::thread::hardware_concurrency()) 
 {}
 
 Reporter::~Reporter() {
-    worker_threads.join(); // Wait for pending reports to finish sending
+    worker_threads.join(); 
     close(this->udp_sockfd);
 }
 
@@ -75,7 +75,6 @@ void Reporter::handle_incoming_report() {
                 spdlog::error("[REPORTER] Exceeded maximum retry attempts. Last error: {}", e.what());
                 break;
             }
-            // Wait 2 seconds before trying to restart the watch stream
             std::this_thread::sleep_for(std::chrono::seconds(2));
         }
     }
@@ -85,12 +84,10 @@ void Reporter::process_and_send_report(json report_json) {
     json filtered_packages = json::array();
 
     for (auto& pkg : report_json[report::PACKAGES]) {
-        // Delete SKIPPED_DUPLICATE
         if (pkg[report::STATUS] == report::STATUS_SKIPPED) {
             continue; 
         }
 
-        // Swap SHA256 for Metadata if SUCCESS
         if (pkg[report::STATUS] == report::STATUS_SUCCESS && pkg.contains(report::SHA256)) {
             std::string sha_val = pkg[report::SHA256].get<std::string>();
             auto filter = make_document(kvp(std::string_view(pkg::SHA256), sha_val));
@@ -109,12 +106,10 @@ void Reporter::process_and_send_report(json report_json) {
     report_json[report::PACKAGES] = filtered_packages;
     report_json.erase("_id");
 
-    // Add Network Info
     report_json[report::NETWORK][report::NET_ID] = this->net_id;
     report_json[report::NETWORK][report::NETNAME] = this->netname;
     report_json[report::NETWORK][report::SUBNET] = this->subnet;
 
-    // Send UDP
     std::string payload = report_json.dump();
     spdlog::info("Sending UDP report for update: {}", report_json[report::BUNDLE_NAME].get<std::string>());
     sendto(this->udp_sockfd, payload.c_str(), payload.size(), 0, 

@@ -151,7 +151,7 @@ public:
 
 private:
     // Constants
-    const std::string BASE_URL = "snapshot.debian.org"; // httplib handles the protocol separately
+    const std::string BASE_URL = "snapshot.debian.org"; 
     const size_t BUFFER_SIZE = 64 * 1024;
 
     // Internal HTTP client (using std::unique_ptr for lifecycle management)

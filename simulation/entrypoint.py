@@ -10,24 +10,21 @@ import sys
 import signal
 import argparse
 
-# 1. SUDO ENFORCEMENT
+# SUDO ENFORCEMENT
 if os.geteuid() != 0:
     print("\033[91m[ERROR] This script must be run as root!\033[0m")
     print("Please use: sudo ./entrypoint.py [args]")
     sys.exit(1)
 
-# 2. CLI ARGUMENTS
+# CLI ARGUMENTS
 parser = argparse.ArgumentParser(description="System Control Panel")
 parser.add_argument("--static", action="store_true", help="Run networks in static mode")
 parser.add_argument("--dynamic", action="store_true", help="Run networks in dynamic mode (default)")
 parser.add_argument("--build", action="store_true", help="Force build networks on startup")
 args, unknown = parser.parse_known_args()
 
-# Determine network startup mode
 NET_MODE = "--static" if args.static else "--dynamic"
 NET_BUILD = "--build" if args.build else ""
-
-# Global Process Trackers
 startup_process = None
 
 # Visual Constants
@@ -56,7 +53,6 @@ def shake_widget(widget, original_color, count=0):
         widget.place(x=0, y=0, relwidth=1, relheight=1)
         root.after(1000, lambda: widget.config(bg=original_color))
 
-# Custom Log UI Component
 class LogConsole(tk.Frame):
     def __init__(self, parent):
         super().__init__(parent, bg=BG_MAIN)
@@ -138,7 +134,6 @@ def on_closing():
     sys_logs.log("[SYSTEM] Shutting down... Running Docker Compose down on everything.")
     
     def cleanup():
-        # Iterate over all targets to shut them down
         for target in ["networks", "outside-net", "isolated-net"]:
             sys_logs.log(f"[SYSTEM] Stopping {target}...")
             subprocess.run(["make", target, "CMD=down"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -194,14 +189,12 @@ def create_page(name, title_text):
     return page
 
 
-# 1. SYSTEM PAGE (Startup & Exit Logs)
+# SYSTEM PAGE (Startup & Exit Logs)
 page_system = create_page("System", "System Startup & Core Activity")
 sys_logs = LogConsole(page_system)
 sys_logs.pack(fill="both", expand=True, padx=20, pady=(0, 20))
 
-
-
-# 2. OUTSIDE-NET PAGE
+# OUTSIDE-NET PAGE
 page_outside = create_page("Outside Net", "Outside Network Controls")
 
 out_controls = tk.Frame(page_outside, bg=BG_PANEL, padx=15, pady=15)
@@ -213,17 +206,13 @@ out_btn_frame.pack(fill="x", pady=5)
 tk.Button(out_btn_frame, text="UP", command=lambda: run_make_command("outside-net", "up", out_logs), bg=ACCENT_GREEN, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=(0,5))
 tk.Button(out_btn_frame, text="DOWN", command=lambda: run_make_command("outside-net", "down", out_logs), bg=ACCENT_GRAY, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=5)
 tk.Button(out_btn_frame, text="BUILD", command=lambda: run_make_command("outside-net", "build", out_logs), bg=ACCENT_BLUE, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=5)
-# Change Port 8080 if Outside Net runs on a different port
 tk.Button(out_btn_frame, text="APP", command=lambda: open_web_browser("http://localhost:8080", out_logs, "[OUTSIDE]"), bg=ACCENT_PURPLE, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=5)
 
 tk.Label(page_outside, text="Logs:", bg=BG_MAIN, fg=FG_TEXT, font=FONT_BOLD).pack(anchor="w", padx=20)
 out_logs = LogConsole(page_outside)
 out_logs.pack(fill="both", expand=True, padx=20, pady=(5, 20))
 
-
-
-# 3. ISOLATED-NET PAGE
-
+# ISOLATED-NET PAGE
 page_isolated = create_page("Isolated Net", "Isolated Network & VM Controls")
 
 iso_controls = tk.Frame(page_isolated, bg=BG_PANEL, padx=15, pady=15)
@@ -236,7 +225,6 @@ iso_btn_frame.pack(fill="x", pady=5)
 tk.Button(iso_btn_frame, text="UP", command=lambda: run_make_command("isolated-net", "up", iso_logs), bg=ACCENT_GREEN, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=(0,5))
 tk.Button(iso_btn_frame, text="DOWN", command=lambda: run_make_command("isolated-net", "down", iso_logs), bg=ACCENT_GRAY, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=5)
 tk.Button(iso_btn_frame, text="BUILD", command=lambda: run_make_command("isolated-net", "build", iso_logs), bg=ACCENT_BLUE, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=5)
-# Change Port 9090 if Isolated Net runs on a different port
 tk.Button(iso_btn_frame, text="APP", command=lambda: open_web_browser("http://localhost:9090", iso_logs, "[ISOLATED]"), bg=ACCENT_PURPLE, fg="white", font=FONT_BOLD, relief="flat", width=10).pack(side="left", padx=5)
 
 # VM Configuration Toggle logic
@@ -258,7 +246,6 @@ def toggle_vm_config():
 
 tk.Button(iso_btn_frame, text="TOGGLE VM CONFIG", command=toggle_vm_config, bg="#333333", fg="white", font=FONT_BOLD, relief="flat", width=20).pack(side="right", padx=5)
 
-# Isolated Net Logs
 tk.Label(page_isolated, text="Logs:", bg=BG_MAIN, fg=FG_TEXT, font=FONT_BOLD).pack(anchor="w", padx=20)
 iso_logs = LogConsole(page_isolated)
 iso_logs.pack(fill="both", expand=True, padx=20, pady=(5, 20))

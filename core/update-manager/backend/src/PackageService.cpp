@@ -3,11 +3,9 @@
 void DebianPackageService::init() {
     client = std::make_unique<httplib::Client>(BASE_URL);
 
-    // onfigure Timeouts
     client->set_connection_timeout(CONNECTION_TIMEOUT, 0); 
     client->set_read_timeout(READ_TIMEOUT, 0);
 
-    // Follow Redirects
     client->set_follow_location(true);
     spdlog::info("DebianPackageService initialized for {}", BASE_URL);
 }
@@ -15,7 +13,7 @@ void DebianPackageService::init() {
 void DebianPackageService::cleanup() {
     if (client) {
         spdlog::info("Cleaning up DebianPackageService resources...");
-        client.reset(); // effectively "closes" the session
+        client.reset(); 
     }
 }
 
@@ -101,16 +99,13 @@ std::vector<std::vector<std::string>> DebianPackageService::_resolve_dependencie
                                                                                 const std::string& target_arch) {
     if (depends_str.empty()) return {};
 
-    // 1. Parse the raw string into package names and their constraints
     auto package_constraints = _parse_constraints(depends_str);
     std::vector<std::vector<std::string>> resolved_list;
 
     for (const auto& [pkg_name, constraints] : package_constraints) {
-        // 2. Find the best version that fits all constraints
         std::string best_version = _find_best_version(pkg_name, constraints);
         
         if (!best_version.empty()) {
-            // 3. Verify architecture (target_arch or 'all')
             std::string effective_arch = _target_arch_or_all(pkg_name, best_version, target_arch);
             
             if (!effective_arch.empty()) {
@@ -138,7 +133,6 @@ std::vector<json> DebianPackageService::get_package_instances(const std::string&
 json DebianPackageService::get_package_info(const std::string& pkg_name, 
                                                      const std::string& version, 
                                                      const std::string& architecture) {
-    // URL encode the version (handling characters like : and +)
     std::string encoded_version = encode_url(version);
     std::string endpoint = "/mr/binary/" + pkg_name + "/" + encoded_version + "/binfiles?fileinfo=1";
     
@@ -164,10 +158,9 @@ json DebianPackageService::get_package_info(const std::string& pkg_name,
         return nullptr;
     }
 
-    // Snapshot API structure: fileinfo[hash] is an array, we take the first element
     if (file_info_map.contains(target_hash) && !file_info_map[target_hash].empty()) {
         json file_info = file_info_map[target_hash][0];
-        file_info["SHA1"] = target_hash; // Attach the hash as in Python code
+        file_info["SHA1"] = target_hash; 
         return file_info;
     }
 
@@ -176,33 +169,27 @@ json DebianPackageService::get_package_info(const std::string& pkg_name,
 
 
 PackageMetadata DebianPackageService::get_package_metadata(const std::string& file_path) {
-    // Get raw control fields (calls dpkg-deb internally)
     auto control_data = _get_raw_control_data(file_path);
 
-    // Calculate SHA256 of the local file
     std::string sha256 = _calculate_sha256(file_path);
-
     std::string arch = control_data["Architecture"];
     
-    // Combine Depends and Pre-Depends
     std::string combined_depends = control_data["Depends"];
     if (!control_data["Pre-Depends"].empty()) {
         if (!combined_depends.empty()) combined_depends += ", ";
         combined_depends += control_data["Pre-Depends"];
     }
 
-    // Resolve dependencies into structured format
     auto resolved_deps = _resolve_dependencies(combined_depends, arch);
 
-    // Construct the Struct
     PackageMetadata metadata;
     metadata.Package = control_data["Package"];
     metadata.Version = control_data["Version"];
-    metadata.Type = "Debian"; // Hardcoded for this service
+    metadata.Type = "Debian"; 
     metadata.Architecture = arch;
     metadata.Dependencies = resolved_deps;
     metadata.SHA256 = sha256;
-    metadata.compute_store_path(); // Sets Store_Path based on SHA256, Package, and Version
+    metadata.compute_store_path(); 
     metadata.Installed_Size = control_data.count("Installed-Size") ? std::stoll(control_data["Installed-Size"]) : 0;
     
     metadata.Size = std::filesystem::file_size(file_path);
@@ -228,7 +215,6 @@ std::string DebianPackageService::_target_arch_or_all(const std::string& pkg_nam
     for (const auto& entry : results) {
         std::string arch = entry.value("architecture", "");
         
-        // If we find an exact match, we're done
         if (arch == target_arch) {
             return target_arch;
         }
@@ -238,7 +224,6 @@ std::string DebianPackageService::_target_arch_or_all(const std::string& pkg_nam
         }
     }
 
-    // Fallback to 'all' if the specific arch wasn't found
     return has_all ? "all" : "";
 }
 
@@ -262,7 +247,6 @@ std::map<std::string, std::string> DebianPackageService::_get_raw_control_data(c
         throw std::runtime_error("File not found: " + file_path);
     }
 
-    // dpkg-deb -I <file> extracts the control info to stdout
     CommandResult res = execute_command("dpkg-deb -I '" + file_path + "'");
 
     if (res.exit_code != 0) {
@@ -274,13 +258,11 @@ std::map<std::string, std::string> DebianPackageService::_get_raw_control_data(c
     std::string line;
 
     while (std::getline(ss, line)) {
-        // dpkg-deb -I output lines usually start with spaces/tabs
         size_t colon_pos = line.find(':');
         if (colon_pos != std::string::npos) {
             std::string key = line.substr(0, colon_pos);
             std::string value = line.substr(colon_pos + 1);
 
-            // Trim leading/trailing whitespace
             key.erase(0, key.find_first_not_of(" \t\r\n"));
             key.erase(key.find_last_not_of(" \t\r\n") + 1);
             value.erase(0, value.find_first_not_of(" \t\r\n"));
@@ -366,21 +348,17 @@ DebianPackageService::_parse_constraints(const std::string& depends_str)
         return package_constraints;
     }
 
-    // Compile regex once using 'static const' for performance.
     static const std::regex dep_regex(R"(^([a-z0-9\+\-\.]+)(:([a-z0-9]+))?(\s*\((<<|<=|=|>=|>>)\s*([^)]+)\))?)");
 
     std::stringstream ss(depends_str);
     std::string part;
 
-    // Split by ','
     while (std::getline(ss, part, ',')) {
-        // Split by '|' and take the first preferred dependency
         size_t pipe_pos = part.find('|');
         std::string preferred_dep = (pipe_pos != std::string::npos) ? part.substr(0, pipe_pos) : part;
 
-        // Strip leading and trailing whitespace
         size_t start = preferred_dep.find_first_not_of(" \t\r\n");
-        if (start == std::string::npos) continue; // Skip if it's all whitespace
+        if (start == std::string::npos) continue; 
 
         size_t end = preferred_dep.find_last_not_of(" \t\r\n");
         preferred_dep = preferred_dep.substr(start, end - start + 1);
@@ -390,11 +368,9 @@ DebianPackageService::_parse_constraints(const std::string& depends_str)
             continue;
         }
 
-        // match[1] = pkg_name, match[5] = operator, match[6] = version
         std::string pkg_name = match[1].str();
         package_constraints[pkg_name];
 
-        // Check if the operator and version capture groups actually matched anything
         if (match[5].matched && match[6].matched) {
             std::string constraint_op = match[5].str();
             std::string constraint_ver = match[6].str();
@@ -414,11 +390,10 @@ std::string DebianPackageService::_calculate_sha1(const std::string& file_path) 
     SHA_CTX sha1_ctx;
     SHA1_Init(&sha1_ctx);
 
-    char buffer[64 * 1024]; // 64KB buffer
+    char buffer[64 * 1024]; 
     while (file.read(buffer, sizeof(buffer))) {
         SHA1_Update(&sha1_ctx, buffer, file.gcount());
     }
-    // Process the last partial chunk if any
     if (file.gcount() > 0) {
         SHA1_Update(&sha1_ctx, buffer, file.gcount());
     }
@@ -438,7 +413,6 @@ std::string DebianPackageService::get_package_file(const std::string& pkg_name,
                                                    const std::string& version, 
                                                    const std::string& architecture) 
 {
-    // Get binary metadata
     json pkg_meta = get_package_info(pkg_name, version, architecture);
     if (pkg_meta.empty() || pkg_meta.is_null()) {
         throw std::runtime_error("No binary found for " + pkg_name + " " + version + " (" + architecture + ")");
@@ -468,7 +442,7 @@ std::string DebianPackageService::get_package_file(const std::string& pkg_name,
 
         res = client->Get(endpoint.c_str(), [&](const char *data, size_t data_length) {
             outfile.write(data, data_length);
-            return outfile.good(); // Stop if disk is full or file becomes unwritable
+            return outfile.good();
         });
 
         outfile.close();
@@ -489,13 +463,12 @@ std::string DebianPackageService::get_package_file(const std::string& pkg_name,
     }
 
     if (!success) {
-        std::remove(file_name_str.c_str()); // Clean up
+        std::remove(file_name_str.c_str());
         std::string err_msg = "Final download failure for " + file_name_str + ": ";
         err_msg += res ? std::to_string(res->status) : httplib::to_string(res.error());
         throw std::runtime_error(err_msg);
     }
 
-    // Perform Integrity Check using our new helper!
     std::string actual_sha1 = _calculate_sha1(file_name_str);
     
     if (!expected_sha1.empty() && actual_sha1 != expected_sha1) {
@@ -679,7 +652,6 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
             }
         }
 
-        // POST-PROCESSING: Link the Dependency Graph
         for (const auto& edge : dependency_edges) {
             const std::string& parent_name = edge.first;
             const std::string& child_name = edge.second;
@@ -703,7 +675,6 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
             }
         }
 
-        // FINALIZE AND RETURN
         final_metadata_list.reserve(resolved_packages.size() - 1);
         for (const auto& [pkg_name, meta] : resolved_packages) {
             if (pkg_name != metadata.Package) 
@@ -711,7 +682,6 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
         }
 
     }catch(const std::exception& e){
-        // if an error happend the update failed and we need to clean up processing dir 
         try{
             if (fs::exists(this->download_path)) 
                 fs::remove_all(this->download_path);
@@ -770,7 +740,6 @@ provider_map DebianPackageService::build_provider_map(const std::vector<PackageM
             std::string path_str = archive_entry_pathname(entry);
             if (path_str.substr(0, 2) == "./") path_str.erase(0, 2);
 
-            // Skip unwanted files (metadata, logs, etc.)
             if (!has_allowed_prefix(path_str)) continue;
 
             auto type = archive_entry_filetype(entry);
@@ -779,11 +748,10 @@ provider_map DebianPackageService::build_provider_map(const std::vector<PackageM
             fs::path path(path_str);
             mode_t mode = archive_entry_mode(entry);
 
-            // Identify file properties
             bool is_so = (path.extension() == ".so" || path_str.find(".so.") != std::string::npos);
             bool is_exe = (type == S_IFREG) && (mode & 0111) && is_in_bin_dir(path_str);
 
-            // Handle SONAME aliases for the forest
+            // Handle SONAME 
             if (type == S_IFREG && is_so) {
                 if (auto soname = this->extract_soname_from_archive(a)) {
                     std::string soname_path = path.parent_path().string() + "/" + *soname;
@@ -793,7 +761,6 @@ provider_map DebianPackageService::build_provider_map(const std::vector<PackageM
                 }
             }
 
-            // Map the actual file (for forest + wrapper check)
             p_map[map_key].emplace_back(path_str, path_str, is_exe);
         }
         
@@ -817,7 +784,6 @@ forest_map DebianPackageService::generate_forests(const provider_map &global_pro
         auto full_deps = global_sort.subgraph_order(name, version);
         std::unordered_set<std::string> bundled_deps;
         
-        // Identify system dependencies whose sub-dependencies are handled via bundling
         for (const auto& dep : full_deps) {
             std::string dep_name = dep.Package;
             if (this->is_system_pkg(dep_name) && dep_name != name) {
@@ -831,11 +797,9 @@ forest_map DebianPackageService::generate_forests(const provider_map &global_pro
             }
         }
 
-        // Generate forest ignoring bundled dependencies
         for (const PackageMetadata& dec_pkg : full_deps) {
             std::string dec_name = dec_pkg.Package;
             
-            // Skip checking subgraph items if they are bundled in a system package
             if (bundled_deps.find(dec_name) != bundled_deps.end()) {
                 continue;
             }

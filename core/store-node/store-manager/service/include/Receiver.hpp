@@ -14,7 +14,6 @@ struct ft_arguments {
   std::string flute_interface = {};
   std::string mcast_target = {};
   bool enable_ipsec = false;
-  const char *aes_key = {};
   unsigned short mcast_port;
   uint64_t tsi = 16;
   std::string output_path;

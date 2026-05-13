@@ -35,12 +35,10 @@ public:
     void run();
 
 private:
-    // databases
     mongocxx::instance db_inst;
     struct db_init pkg_db;
     struct db_init report_db;
 
-    // Networking
     std::string net_id;
     std::string netname;
     std::string subnet;
@@ -48,7 +46,6 @@ private:
     int udp_sockfd;
     struct sockaddr_in servaddr;
 
-    // Boost Asio Thread
     boost::asio::thread_pool worker_threads;
 
     void handle_incoming_report();

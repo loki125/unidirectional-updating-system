@@ -55,11 +55,9 @@ bool Broadcaster::create_file_entry(Target& targ, const std::string& tar_path, s
     ft_arguments arguments = targ.args;
     
     try {
-        // 1. Prepare paths
         fs::path base_dir = this->update_path;
         fs::path full_path_obj = base_dir / tar_path;
         
-        // 2. Validate
         if (!fs::exists(full_path_obj) || !fs::is_regular_file(full_path_obj)) {
             out_error = "File not found: " + full_path_obj.string();
             spdlog::error(out_error);
@@ -77,7 +75,7 @@ bool Broadcaster::create_file_entry(Target& targ, const std::string& tar_path, s
 
         if (fd->data() == nullptr) {
             delete fd;
-            targ.files.pop_back(); // Remove the incomplete entry
+            targ.files.pop_back(); 
             out_error = "LibFlute failed to load file data";
             spdlog::error(out_error);
             return false;
@@ -97,9 +95,7 @@ bool Broadcaster::create_file_entry(Target& targ, const std::string& tar_path, s
              fd->set_etag(""); 
         }
 
-        // The unique_ptr/shared_ptr takes ownership here
         entry.file.reset(fd);
-
         return true;
 
     } catch(const std::exception &e) {
@@ -140,29 +136,25 @@ json Broadcaster::send(const fs::path& tar_path)
         std::string error_msg;
         if (!this->create_file_entry(target, tar_path.string(), error_msg)) 
             throw std::runtime_error("Failed to add file " + tar_path.filename().string() + ": " + error_msg);        
-        // Only attempt send if files were added successfully
         if (target.files.empty()) 
             throw std::runtime_error("No files where found for transmission");
 
         this->target.pending_files = this->target.files.size();
         LibFlute::Transmitter* transmitter = this->target.transmitter.get();
 
-        // Queue all the files
         for (const auto& file : this->target.files) {
 
-            // DEBUG CHECK
             if (!file.file) {
                 spdlog::error("File pointer is null!"); 
                 continue; 
             }
             
-            // Print details to verify data is readable before sending
             try {
                 const auto &fe = file.file->file_entry();
                 spdlog::info("Sending TOI: {}, URI: {}, Type: {}", 
                     file.file->toi(), 
-                    fe.content_location, // If this crashes, the Name string is dead
-                    fe.content_type      // If this crashes, Type is dead
+                    fe.content_location, 
+                    fe.content_type      
                 );
             } catch (const std::exception& e) {
                 spdlog::error("Crash while reading file properties: {}", e.what());
@@ -192,7 +184,6 @@ Broadcaster::Broadcaster() {
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
     
-    // extract target from env, set defualt_args for each and insert it to target
     this->mcast_port = std::stoi(get_env_var("MCAST_PORT"));
     spdlog::info("MCAST_PORT successfully set to: {}", this->mcast_port);
 

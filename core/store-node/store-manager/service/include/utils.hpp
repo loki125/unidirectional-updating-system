@@ -18,12 +18,6 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-using forest_map = std::map<fs::path, std::map<std::string, fs::path>>;
-// hash_path : List{provided_name, provided_soname}
-using provider_vector = std::vector<std::tuple<std::string, std::string, bool>>; // provided_name, provided_soname, is_executable
-using provider_map = std::map<fs::path, provider_vector>;
-
-
 namespace pkg {
     constexpr const char* NAME = "Package";
     constexpr const char* VERSION = "Version";

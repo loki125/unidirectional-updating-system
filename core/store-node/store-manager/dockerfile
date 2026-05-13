@@ -48,7 +48,6 @@ WORKDIR /service
 # Clone rt-libflute library directly into service workspace
 RUN mkdir -p deps && git clone https://github.com/5G-MAG/rt-libflute.git deps/rt-libflute
 
-# ===== 1. PRE-COMPILE FLUTE WITH GCC =====
 # Build flute first with GCC (the default toolchain in this image)
 RUN cd deps/rt-libflute \
     && CC=gcc CXX=g++ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF \
@@ -56,12 +55,10 @@ RUN cd deps/rt-libflute \
 
 COPY service/ .
 
-# ===== 2. BUILD THE MAIN SERVICE WITH CLANG =====
 # Force CMake to use clang & clang++ 
 RUN CC=clang CXX=clang++ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build
 
 RUN cp build/StoreManager /usr/local/bin/
 
-# Set the command to run the executable when the container starts.
 ENTRYPOINT ["/usr/local/bin/StoreManager"]

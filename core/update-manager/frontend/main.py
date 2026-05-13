@@ -8,7 +8,6 @@ import core  #  C++ module
 
 app = FastAPI()
 
-# Static files (unchanged)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
@@ -66,7 +65,6 @@ async def get_package_metadata(package_name: str, type: str):
     if not raw_list:
         return {"error": "Package not found"}
 
-    # each item is JSON string → convert
     return [json.loads(item) for item in raw_list]
 
 @app.get("/info")

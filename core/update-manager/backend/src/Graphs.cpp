@@ -68,7 +68,6 @@ void PackageGraph::add_depend(const Package &pkg)
     for( const auto& depend : pkg.dependencies){
         std::size_t depend_id = this->add_pkg(depend);
 
-        // Add the edge
         graph_.add_edge(pkg_id, depend_id);
     }
 }

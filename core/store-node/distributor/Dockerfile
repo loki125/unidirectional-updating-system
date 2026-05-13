@@ -8,10 +8,8 @@ RUN apt-get update && \
         vim \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /service
 
-# Install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

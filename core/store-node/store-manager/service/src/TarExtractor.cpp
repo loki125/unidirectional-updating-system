@@ -38,7 +38,6 @@ TarExtractor::TarExtractor(const fs::path& tar_path)
             continue;
         }
 
-        // extract any other file
         fs::path out_path = output_dir / filename;
 
         std::ofstream out(out_path, std::ios::binary);

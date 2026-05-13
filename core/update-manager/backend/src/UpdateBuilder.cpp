@@ -102,7 +102,6 @@ fs::path UpdateBuilder::_create_tar_object(const UpdateManifest& manifest,
         archive_entry_free(entry);
     }
 
-    // 2. Add all physical component files
     for (const std::string& path : file_paths) {
         if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) {
             archive_write_close(tar);
@@ -115,7 +114,6 @@ fs::path UpdateBuilder::_create_tar_object(const UpdateManifest& manifest,
         std::string base_name = std::filesystem::path(path).filename().string();
         archive_entry_set_pathname(file_entry, base_name.c_str());
         
-        // Set metadata
         size_t file_size = std::filesystem::file_size(path);
         archive_entry_set_size(file_entry, file_size);
         archive_entry_set_filetype(file_entry, AE_IFREG);
@@ -198,15 +196,13 @@ json UpdateBuilder::_calculate_mounts(const std::string &pkg_name, const std::st
 
 UpdateManifest UpdateBuilder::_build_update_manifest(const PackageMetadata &metadata, const std::vector<PackageMetadata> &packages, size_t total_size_byte)
 {
-    // Construct the Manifest
     UpdateManifest manifest;
     manifest.update_id = metadata.generate_id();
     manifest.pkgs_type = metadata.Type;
-    manifest.format_version = "1.0"; // Replace with self.version equivalent
+    manifest.format_version = "1.0"; 
     manifest.total_size_byte = total_size_byte;
     manifest.packages = packages;
 
-    // Generate current timestamp (ISO 8601 format)
     auto now = std::chrono::system_clock::now();
     std::time_t now_time = std::chrono::system_clock::to_time_t(now);
     std::stringstream ss;

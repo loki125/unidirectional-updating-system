@@ -54,7 +54,6 @@ async def get_download_package(Store_path: str):
     if not os.path.isdir(folder_path):
         raise HTTPException(status_code=404, detail="Folder not found")
 
-    # Collect files to send
     files_to_send = []
     for fname in os.listdir(folder_path):
         files_to_send.append(os.path.join(folder_path, fname))
@@ -62,7 +61,6 @@ async def get_download_package(Store_path: str):
     if not files_to_send:
         raise HTTPException(status_code=404, detail="No files found")
 
-    # Create a ZIP in memory
     zip_stream = BytesIO()
     with zipfile.ZipFile(zip_stream, mode="w") as zf:
         for fpath in files_to_send:

@@ -5,7 +5,6 @@ setup_iface() {
     local ip="$1"
     local iface_name="$2"
 
-    # Detect interface from IP using an exact match (ignoring the /24 CIDR mask)
     local iface_val
     iface_val=$(ip -o -4 addr show | awk -v ip="$ip" '{split($4, a, "/"); if(a[1] == ip) print $2}')
 
@@ -16,7 +15,6 @@ setup_iface() {
 
     echo "[INFO] Configuring $iface_name with IP $ip on interface $iface_val"
 
-    # Export the global variable so the rest of the script can use it
     export "${iface_name}_IFACE=$iface_val"
 
     ethtool -K "$iface_val" tx off rx off \
@@ -85,7 +83,6 @@ EOF
 }
 
 main() {
-    # Ensure env variables are available
     if [ -z "$MULTICAST_IP" ] || [ -z "$STORE_MANAGER_MCAST_IP" ]; then
         echo "ERROR: Missing required environment variables (MULTICAST_IP or STORE_MANAGER_MCAST_IP)"
         exit 1

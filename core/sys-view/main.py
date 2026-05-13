@@ -115,7 +115,6 @@ manager = ConnectionManager()
 # THE PROCESSOR LOGIC
 def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
     """Parses the incoming report using Pydantic, updates Mongo, and notifies the frontend."""
-    # print(json.dumps(report_json, indent=4))    
 
     try:
         report = ReportPayload.model_validate(report_json)
@@ -134,9 +133,8 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
     logging.info(f"Received report from network {net_id} ({network_name}) - Status: {report.overall_status}")
 
     network_package_updates = {}
-    new_packages_ui = [] # Keep track of what to send to frontend     
+    new_packages_ui = []  
     
-    # Even if packages are empty (e.g., CRITICAL_FAILURE), this loop just safely skips
     for pkg in report.packages:
         pkg_sha256 = pkg.sha256 or (pkg.metadata.SHA256 if pkg.metadata else "UNKNOWN_SHA")
         if pkg_sha256 == "UNKNOWN_SHA":
@@ -146,7 +144,6 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
         if pkg.error_message:
             health_obj["error_message"] = pkg.error_message
 
-        # We store it in DB using the SHA256 as the key to prevent Mongo dot-notation errors
         network_package_updates[pkg_sha256] = health_obj
         
         display_name = pkg.filename or pkg_sha256
@@ -160,14 +157,12 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
         })
 
         if pkg.metadata:
-            # Upsert package metadata
             packages_col.update_one(
                 {"SHA256": pkg_sha256}, 
                 {"$set": pkg.metadata.model_dump(by_alias=True)}, 
                 upsert=True
             )
 
-    # CREATE THE UPDATE RECORD (This will be saved even if there are 0 packages!)
     update_record = {
         "bundle_name": report.bundle_name,
         "timestamp": report.timestamp,
@@ -176,7 +171,6 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
         "packages": network_package_updates
     }
 
-    # Upsert base network data, and append the latest update to the "updates" array
     networks_col.update_one(
         {"net_id": net_id}, 
         {
@@ -193,7 +187,6 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
     
     logger.info(f"Updated network {net_id}. Broadcasting to frontend...")
     
-    # SEND LIVE UPDATE TO FRONTEND
     update_data = {
         "type": "NEW_DATA",
         "net_id": net_id,
@@ -208,7 +201,7 @@ def process_report(report_json: dict, loop: asyncio.AbstractEventLoop):
     }
     asyncio.run_coroutine_threadsafe(manager.broadcast(update_data), loop)
 
-# HELPER LOGIC
+# HELPER 
 def enrich_network_data(net_doc: dict) -> dict:
     """Formats the network dictionary to send clean status/name data to the frontend UI"""
     if "updates" in net_doc:
@@ -234,7 +227,6 @@ def enrich_network_data(net_doc: dict) -> dict:
     return net_doc
 
 
-# THE UDP LISTENER THREAD
 def udp_listener_thread(host: str, port: int, loop: asyncio.AbstractEventLoop):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((host, port))
@@ -248,7 +240,6 @@ def udp_listener_thread(host: str, port: int, loop: asyncio.AbstractEventLoop):
         except Exception as e:
             logger.error(f"Error processing UDP packet: {e}")
 
-# FASTAPI INTEGRATION
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     loop = asyncio.get_running_loop()
@@ -297,7 +288,6 @@ def remove_pkg(req: RemovePackageReq):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Package not found")
     
-    # Remove the package from all 'packages' dictionaries inside all 'updates' arrays
     networks_col.update_many({}, {"$unset": {f"updates.$[].packages.{req.sha256}": ""}})
     return {"message": f"Package {req.sha256} removed successfully"}
 
@@ -331,7 +321,6 @@ def remove_net(req: RemoveNetworkReq):
 
 @app.get("/pkggraph")
 def generate_pkg_graph(pkg_sha256: str, file_format: str = 'png'):
-    # ...(Existing Logic, no changes needed here)...
     start_pkg = packages_col.find_one({"SHA256": pkg_sha256})
     if not start_pkg:
         raise HTTPException(status_code=404, detail="Package not found in DB")
@@ -409,7 +398,6 @@ def generate_net_graph(net_id: str, file_format: str = 'png'):
     visited_names = set()
     queue = []
 
-    # Get all packages spanning across ALL recorded updates
     all_package_hashes = set()
     if "updates" in net:
         for update in net["updates"]:

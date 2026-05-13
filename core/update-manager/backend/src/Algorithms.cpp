@@ -9,7 +9,6 @@ GSO::GSO(const std::vector<PackageMetadata>& packages) : pgraph(graph_builder(pa
 
     Graph& graph = pgraph.graph();
 
-    //Detect and Break Cycles
     std::vector<EdgeToCut> edges_to_cut = scc_detection(graph);
     this->resolve_scc(edges_to_cut);
 
@@ -143,7 +142,7 @@ std::unordered_set<std::size_t> GSO::get_descendants(const Graph &g, std::size_t
         for (auto n : g.neighbors(node)) {
             if (!visited[n]) {
                 visited[n] = true;
-                result.insert(n);   // collect descendant
+                result.insert(n);   
                 st.push(n);
             }
         }
@@ -177,7 +176,6 @@ std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph) {
             }
         }
 
-        // root of SCC
         if (low[u] == disc[u]) {
             std::vector<std::size_t> component;
             while (true) {
@@ -197,12 +195,12 @@ std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph) {
             }
             else if (component.size() > 2) {
                 std::size_t cut_u = component[0];
-                std::size_t cut_v = component[1]; // fallback
+                std::size_t cut_v = component[1]; 
 
                 bool edge_found = false;
                 for (std::size_t nodeA : component) {
                     for (std::size_t nodeB : graph.neighbors(nodeA)) {
-                        // If neighbor is also in this SCC, it's a cycle edge!
+                        // If neighbor is also in this SCC, it's a cycle edge
                         if (std::find(component.begin(), component.end(), nodeB) != component.end()) {
                             cut_u = nodeA;
                             cut_v = nodeB;
