@@ -836,7 +836,7 @@ json DebianPackageService::get_status(const std::string &filename) {
         std::string control_raw = execute_command("dpkg-deb -f " + path.string()).stdout_res;
         
         std::string name = "unknown";
-        std::string arch = "amd64";
+        std::string arch = "unknown";
         std::stringstream ss(control_raw);
         std::string line;
         std::string status_block;

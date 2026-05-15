@@ -7,7 +7,6 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-// Project headers
 #include "Receiver.hpp"
 #include "Store.hpp"
 #include "Reporter.hpp"
@@ -59,7 +58,6 @@ pid_t spawn_worker(const std::string& name, std::function<void()> task) {
     }
 
     if (pid == 0) {
-        // --- CHILD PROCESS ---
         spdlog::info("Worker '{}' started (PID: {})", name, getpid());
         try {
             task();
@@ -106,10 +104,8 @@ int main() {
         store.run();
     });
 
-    // Run Networking stackter
     run_networking_stack();
 
-    // Wait for the Store process to finish
     if (store_pid > 0) {
         int status;
         waitpid(store_pid, &status, 0);

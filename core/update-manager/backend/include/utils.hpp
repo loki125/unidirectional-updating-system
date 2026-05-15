@@ -270,7 +270,6 @@ struct ft_arguments {
   bool enable_ipsec = false;
   bool use_gzip = false;
   bool gen_etags = false;
-  const char *aes_key = {};
   unsigned short mcast_port = 40085;
   unsigned short mtu = 1500;
   uint32_t rate_limit = 1000;
