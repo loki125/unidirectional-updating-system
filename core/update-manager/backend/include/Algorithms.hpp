@@ -16,6 +16,27 @@
  */
 class GSO {
 private:
+
+    struct SCCState {
+        std::vector<int> disc;
+        std::vector<int> low;
+        std::vector<bool> stackMember;
+        std::stack<std::size_t> st;
+        std::size_t timer = 0;
+        std::vector<EdgeToCut> edges_to_cut;
+
+        SCCState(std::size_t n) 
+            : disc(n, -1), low(n, -1), stackMember(n, false) {}
+    };
+
+    /**
+     * @brief Performs a depth-first search for identifying strongly connected components using Tarjan's algorithm.
+     * @param u The index of the current node being visited.
+     * @param graph The directed graph to traverse.
+     * @param state The state object tracking discovery times and low-link values.
+     */
+    static void scc_dfs(std::size_t u, const Graph &graph, SCCState &state);
+
     /**
      * @brief Internal helper to construct a PackageGraph from a list of metadata.
      * @param pkg_list A vector of PackageMetadata to be represented in the graph.

@@ -151,78 +151,97 @@ std::unordered_set<std::size_t> GSO::get_descendants(const Graph &g, std::size_t
     return result;
 }
 
-std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph) {
-    std::size_t n = graph.size();
-    
-    std::vector<int> disc(n, -1);
-    std::vector<int> low(n, -1);
-    std::vector<bool> stackMember(n, false);
-    std::stack<std::size_t> st;
-    std::size_t timer = 0;
+void GSO::scc_dfs(std::size_t u, const Graph &graph, SCCState &state) {
+    state.disc[u] = state.low[u] = ++state.timer;
+    state.st.push(u);
+    state.stackMember[u] = true;
 
-    std::vector<EdgeToCut> edges_to_cut;
-
-    auto SCC_DFS = [&](auto&& self, std::size_t u) -> void {
-        disc[u] = low[u] = ++timer;
-        st.push(u);
-        stackMember[u] = true;
-
-        for (std::size_t v : graph.neighbors(u)) {
-            if (disc[v] == -1) {
-                self(self, v);
-                low[u] = std::min(low[u], low[v]);
-            } else if (stackMember[v]) {
-                low[u] = std::min(low[u], disc[v]);
-            }
+    for (std::size_t v : graph.neighbors(u)) {
+        if (state.disc[v] == -1) {
+            scc_dfs(v, graph, state);
+            state.low[u] = std::min(state.low[u], state.low[v]);
+            continue;
         }
 
-        if (low[u] == disc[u]) {
-            std::vector<std::size_t> component;
-            while (true) {
-                std::size_t v = st.top();
-                st.pop();
-                stackMember[v] = false;
-                component.push_back(v);
-                if (u == v) break;
-            }
-
-            if (component.size() == 1) {
-                spdlog::warn("[GSO] self pointing SCC detected. invalid ID: {}", component[0]);
-            }
-            else if (component.size() == 2) {
-                std::size_t nodeA = component[0], nodeB = component[1]; 
-                edges_to_cut.push_back({nodeA, nodeB, ConflictType::SOFT});
-            }
-            else if (component.size() > 2) {
-                std::size_t cut_u = component[0];
-                std::size_t cut_v = component[1]; 
-
-                bool edge_found = false;
-                for (std::size_t nodeA : component) {
-                    for (std::size_t nodeB : graph.neighbors(nodeA)) {
-                        // If neighbor is also in this SCC, it's a cycle edge
-                        if (std::find(component.begin(), component.end(), nodeB) != component.end()) {
-                            cut_u = nodeA;
-                            cut_v = nodeB;
-                            edge_found = true;
-                            break;
-                        }
-                    }
-                    if (edge_found) break;
-                }
-                
-                edges_to_cut.push_back({cut_u, cut_v, ConflictType::HARD});
-            }
-        }
-    };
-
-    for (std::size_t i = 0; i < n; i++) {
-        if (disc[i] == -1) {
-            SCC_DFS(SCC_DFS, i);
+        if (state.stackMember[v]) {
+            state.low[u] = std::min(state.low[u], state.disc[v]);
         }
     }
 
-    return edges_to_cut;
+    if (state.low[u] != state.disc[u]) {
+        return;
+    }
+
+    std::vector<std::size_t> component;
+
+    while (true) {
+        std::size_t v = state.st.top();
+        state.st.pop();
+
+        state.stackMember[v] = false;
+        component.push_back(v);
+
+        if (u == v) {
+            break;
+        }
+    }
+
+    const std::size_t size = component.size();
+
+    if (size == 1) {
+        spdlog::debug(
+            "[GSO] self pointing SCC detected. invalid ID: {}",
+            component[0]
+        );
+        return;
+    }
+
+    if (size == CONFLICT_TYPE_THRESHOLD) {
+        state.edges_to_cut.push_back({
+            component[0],
+            component[1],
+            ConflictType::SOFT
+        });
+        return;
+    }
+
+    auto find_cut_edge = [&](const std::vector<std::size_t> &nodes)
+        -> std::pair<std::size_t, std::size_t>
+    {
+        auto is_in_component = [&](std::size_t node) {
+            return std::find(nodes.begin(), nodes.end(), node) != nodes.end();
+        };
+
+        for (std::size_t nodeA : nodes) {
+            for (std::size_t nodeB : graph.neighbors(nodeA)) {
+                if (is_in_component(nodeB)) {
+                    return {nodeA, nodeB};
+                }
+            }
+        }
+
+        return {nodes[0], nodes[1]};
+    };
+
+    auto [cut_u, cut_v] = find_cut_edge(component);
+
+    state.edges_to_cut.push_back({
+        cut_u,
+        cut_v,
+        ConflictType::HARD
+    });
+}
+
+std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph) {
+    SCCState state(graph.size());
+
+    for (std::size_t i = 0; i < graph.size(); i++) {
+        if (state.disc[i] == -1) {
+            scc_dfs(i, graph, state);
+        }
+    }
+
+    return std::move(state.edges_to_cut);
 }
 
 void GSO::resolve_scc(const std::vector<EdgeToCut>& edges_to_cut) {

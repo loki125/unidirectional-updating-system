@@ -295,6 +295,77 @@ private:
      */
     std::string _calculate_sha256(const std::string& file_path);
 
+    struct ResolutionContext {
+        std::string arch;
+        constraint_map global_constraints;
+        std::map<std::string, PackageMetadata> resolved_packages;
+        std::set<std::string> replaces_provides;
+        std::set<std::string> enqueued;
+        std::queue<std::string> queue;
+        std::vector<std::pair<std::string, std::string>> dependency_links;
+    };
+
+    /**
+     * @brief Processes version requirements for a package and updates the resolution context.
+     * @param ctx The current dependency resolution context.
+     * @param pkg The name of the package to process.
+     * @param reqs The list of version constraints.
+     * @param parent_metadata The metadata of the package requiring this dependency.
+     * @param invert If true, reverses the constraint logic for conflict handling.
+     * @param is_essential_break If true, indicates a conflict with an essential system package.
+     */
+    void process_dependency_requirements(
+        ResolutionContext& ctx, 
+        const std::string& pkg, 
+        const std::vector<std::pair<std::string, std::string>>& reqs, 
+        const PackageMetadata& parent_metadata, 
+        bool invert, 
+        bool is_essential_break
+    );
+
+    /**
+     * @brief Parses package control data to identify and enqueue dependencies and conflicts.
+     * @param ctx The current dependency resolution context.
+     * @param c_data The raw control data map.
+     * @param parent_metadata The metadata of the package being parsed.
+     */
+    void parse_and_queue_control_data(
+        ResolutionContext& ctx, 
+        const std::map<std::string, std::string>& c_data, 
+        const PackageMetadata& parent_metadata
+    );
+
+    /**
+     * @brief Iteratively resolves and downloads all packages currently in the resolution queue.
+     * @param ctx The current dependency resolution context.
+     */
+    void resolve_queued_packages(ResolutionContext& ctx);
+
+    /**
+     * @brief Removes dependency entries from metadata that could not be successfully resolved.
+     * @param ctx The current dependency resolution context.
+     */
+    void remove_ghost_dependencies(ResolutionContext& ctx);
+
+    /**
+     * @brief Establishes metadata links between packages and their confirmed dependencies.
+     * @param ctx The current dependency resolution context.
+     */
+    void link_dependency(ResolutionContext& ctx);
+
+    /**
+     * @brief Filters the resolution context to extract final metadata for all dependencies.
+     * @param ctx The current dependency resolution context.
+     * @param root_package The name of the original package being resolved.
+     * @return std::vector<PackageMetadata> A list of metadata objects for resolved dependencies.
+     */
+    std::vector<PackageMetadata> extract_final_metadata(const ResolutionContext& ctx, const std::string& root_package);
+    
+    /**
+     * @brief Safely removes and recreates the temporary download directory.
+     */
+    void cleanup_download_path();
+
     /**
      * @brief Extracts specific ELF tags using readelf.
      * @param path Path to the ELF file.

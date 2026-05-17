@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <spawn.h>
 #include <map>
+#include <regex>
 #include <stdexcept>
 #include <sys/wait.h>
 
@@ -47,6 +48,47 @@ using constraint_map = std::map<std::string, std::vector<std::pair<std::string, 
 const std::set<std::string> IGNORE_PACKAGES = {"dpkg", "awk"};
 const std::set<std::string> ESSENTIAL_PACKAGES = {"base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"};
 
+namespace DebianFields {
+    constexpr const char* Debian = "Debian";
+    constexpr const char* BREAK = "Breaks";
+    constexpr const char* REPLACES = "Replaces";
+    constexpr const char* PROVIDES = "Provides";
+    constexpr const char* CONFLICTS = "Conflicts";
+    constexpr const char* DEPENDS = "Depends";
+    constexpr const char* PRE_DEPENDS = "Pre-Depends";
+    constexpr const char* ARCH = "Architecture";
+    constexpr const char* PACKAGE = "Package";
+    constexpr const char* VERSION = "Version";
+    constexpr const char* INSTALLED_SIZE = "Installed-Size";
+    constexpr const char* SHA1 = "SHA1";
+    constexpr const char* SHA256 = "SHA256";
+}
+
+namespace DpkgOps {
+    inline const std::string LT = "<<";
+    inline const std::string LE = "<=";
+    inline const std::string EQ = "=";
+    inline const std::string NE = "!=";
+    inline const std::string GE = ">=";
+    inline const std::string GT = ">>";
+
+    inline const std::string CMD_LT = "lt";
+    inline const std::string CMD_LE = "le";
+    inline const std::string CMD_EQ = "eq";
+    inline const std::string CMD_NE = "ne";
+    inline const std::string CMD_GE = "ge";
+    inline const std::string CMD_GT = "gt";
+
+    static const std::unordered_map<std::string, std::string> inverse_map = {
+        {LT,GE}, {LE, GT}, {EQ, NE}, {NE, EQ}, {GE, LT}, {GT, LE}
+    };
+    static const std::unordered_map<std::string, std::string> op_map = {
+        {LT, CMD_LT}, {LE, CMD_LE}, {EQ, CMD_EQ}, {NE, CMD_NE}, {GE, CMD_GE}, {GT, CMD_GT}
+    };
+    static const std::regex op_regex(R"(^([a-z0-9\+\-\.]+)(:([a-z0-9]+))?(\s*\((<<|<=|=|>=|>>)\s*([^)]+)\))?)");
+
+}
+
 struct CommandResult {
     int exit_code;
     std::string stdout_res;
@@ -54,6 +96,8 @@ struct CommandResult {
 };
 
 enum class ConflictType { SOFT, HARD };
+constexpr std::size_t CONFLICT_TYPE_THRESHOLD = 2;
+
 struct EdgeToCut {
     std::size_t u;
     std::size_t v;

@@ -160,7 +160,7 @@ json DebianPackageService::get_package_info(const std::string& pkg_name,
 
     if (file_info_map.contains(target_hash) && !file_info_map[target_hash].empty()) {
         json file_info = file_info_map[target_hash][0];
-        file_info["SHA1"] = target_hash; 
+        file_info[DebianFields::SHA1] = target_hash; 
         return file_info;
     }
 
@@ -172,25 +172,25 @@ PackageMetadata DebianPackageService::get_package_metadata(const std::string& fi
     auto control_data = _get_raw_control_data(file_path);
 
     std::string sha256 = _calculate_sha256(file_path);
-    std::string arch = control_data["Architecture"];
+    std::string arch = control_data[DebianFields::ARCH];
     
-    std::string combined_depends = control_data["Depends"];
-    if (!control_data["Pre-Depends"].empty()) {
+    std::string combined_depends = control_data[DebianFields::DEPENDS];
+    if (!control_data[DebianFields::PRE_DEPENDS].empty()) {
         if (!combined_depends.empty()) combined_depends += ", ";
-        combined_depends += control_data["Pre-Depends"];
+        combined_depends += control_data[DebianFields::PRE_DEPENDS];
     }
 
     auto resolved_deps = _resolve_dependencies(combined_depends, arch);
 
     PackageMetadata metadata;
-    metadata.Package = control_data["Package"];
-    metadata.Version = control_data["Version"];
-    metadata.Type = "Debian"; 
+    metadata.Package = control_data[DebianFields::PACKAGE];
+    metadata.Version = control_data[DebianFields::VERSION];
+    metadata.Type = DebianFields::Debian; 
     metadata.Architecture = arch;
     metadata.Dependencies = resolved_deps;
     metadata.SHA256 = sha256;
     metadata.compute_store_path(); 
-    metadata.Installed_Size = control_data.count("Installed-Size") ? std::stoll(control_data["Installed-Size"]) : 0;
+    metadata.Installed_Size = control_data.count(DebianFields::INSTALLED_SIZE) ? std::stoll(control_data[DebianFields::INSTALLED_SIZE]) : 0;
     
     metadata.Size = std::filesystem::file_size(file_path);
     metadata.Filename = std::filesystem::path(file_path).filename().string();
@@ -230,12 +230,8 @@ std::string DebianPackageService::_target_arch_or_all(const std::string& pkg_nam
 bool DebianPackageService::_compare_versions(const std::string& v1, 
                                             const std::string& op, 
                                             const std::string& v2) {
-    static const std::map<std::string, std::string> op_map = {
-        {"<<", "lt"}, {"<=", "le"}, {"=", "eq"}, 
-        {"!=", "ne"}, {">=", "ge"}, {">>", "gt"}
-    };
 
-    std::string dpkg_op = op_map.count(op) ? op_map.at(op) : "eq";
+    std::string dpkg_op = DpkgOps::op_map.count(op) ? DpkgOps::op_map.at(op) : DpkgOps::CMD_EQ;
     std::string cmd = "dpkg --compare-versions '" + v1 + "' " + dpkg_op + " '" + v2 + "'";
 
     int exit_code = execute_status_cmd(cmd);
@@ -348,8 +344,6 @@ DebianPackageService::_parse_constraints(const std::string& depends_str)
         return package_constraints;
     }
 
-    static const std::regex dep_regex(R"(^([a-z0-9\+\-\.]+)(:([a-z0-9]+))?(\s*\((<<|<=|=|>=|>>)\s*([^)]+)\))?)");
-
     std::stringstream ss(depends_str);
     std::string part;
 
@@ -364,7 +358,7 @@ DebianPackageService::_parse_constraints(const std::string& depends_str)
         preferred_dep = preferred_dep.substr(start, end - start + 1);
 
         std::smatch match;
-        if (!std::regex_search(preferred_dep, match, dep_regex)) {
+        if (!std::regex_search(preferred_dep, match, DpkgOps::op_regex)) {
             continue;
         }
 
@@ -418,7 +412,7 @@ std::string DebianPackageService::get_package_file(const std::string& pkg_name,
         throw std::runtime_error("No binary found for " + pkg_name + " " + version + " (" + architecture + ")");
     }
 
-    std::string expected_sha1 = pkg_meta.value("SHA1", "");
+    std::string expected_sha1 = pkg_meta.value(DebianFields::SHA1, "");
     fs::path file_name = this->download_path / pkg_meta.value("name", "");
     std::string file_name_str = file_name.string();
     std::string first_seen = pkg_meta.value("first_seen", "");
@@ -489,213 +483,239 @@ std::vector<PackageMetadata> DebianPackageService::get_recursive_dependencies(
     const std::string& file_path,
     const constraint_map& injected_constraints) 
 {
-    std::string arch = metadata.Architecture;
-    constraint_map global_constraints;
-    std::map<std::string, PackageMetadata> resolved_packages;
-    std::set<std::string> replaces_provides;
-    std::set<std::string> enqueued;
-    std::queue<std::string> queue;
-    std::vector<std::pair<std::string, std::string>> dependency_edges;
+    ResolutionContext ctx;
+    ctx.arch = metadata.Architecture;
+    ctx.enqueued.insert(metadata.Package);
+    ctx.resolved_packages[metadata.Package] = metadata; 
+    ctx.global_constraints = injected_constraints;
 
-    auto check_and_queue = [&](const std::string& pkg, 
-                               const std::vector<std::pair<std::string, std::string>>& reqs, 
-                               const PackageMetadata& parent_metadata, 
-                               bool invert = false, 
-                               bool is_essential_break = false) 
-    {
-        if (IGNORE_PACKAGES.count(pkg)) return;
-
-        auto& current_constraints_for_pkg = global_constraints[pkg];
-        std::vector<std::pair<std::string, std::string>> new_constraints;
-        
-        for (const auto& req : reqs) {
-            std::string op = req.first;
-            std::string ver = req.second;
-            
-            if (invert) {
-                if (op == "<<") op = ">=";
-                else if (op == "<=") op = ">>";
-                else if (op == "=")  op = "!=";
-                else if (op == ">=") op = "<<";
-                else if (op == ">>") op = "<=";
-            }
-            
-            new_constraints.push_back({op, ver});
-            current_constraints_for_pkg.push_back({op, ver});
-        }
-        
-        if (resolved_packages.count(pkg)) {
-            std::string resolved_ver = resolved_packages[pkg].Version;
-            for (const auto& req : new_constraints) {
-                if (!_compare_versions(resolved_ver, req.first, req.second)) {
-                    spdlog::warn("Version conflict! Have {} v{}, but need {} {}. Re-queueing to find middle ground.", 
-                                 pkg, resolved_ver, req.first, req.second);
-                    
-                    queue.push(pkg);
-                    break;
-                }
-            }
-        }
-        
-        bool should_queue = !invert || is_essential_break;
-        
-        if (should_queue) {
-            dependency_edges.push_back({parent_metadata.Package, pkg});
-            
-            if (!enqueued.count(pkg)) {
-                enqueued.insert(pkg);
-                queue.push(pkg);
-            }
-        }
-    };
-
-    auto process_control_data = [&](const std::map<std::string, std::string>& c_data, 
-                                    const PackageMetadata& parent_metadata) 
-    {
-        std::string d_str = c_data.count("Depends") ? c_data.at("Depends") : "";
-        std::string pd_str = c_data.count("Pre-Depends") ? c_data.at("Pre-Depends") : "";
-        
-        std::string combined_depends = d_str;
-        if (!pd_str.empty()) {
-            if (!combined_depends.empty()) combined_depends += ", ";
-            combined_depends += pd_str;
-        }
-
-        auto parsed_d = _parse_constraints(combined_depends);
-        for (const auto& [dep_pkg, reqs] : parsed_d) {
-            check_and_queue(dep_pkg, reqs, parent_metadata, false, false);
-        }
-
-        if (c_data.count("Replaces")) {
-            std::string rep_str = c_data.at("Replaces");
-            std::stringstream ss(rep_str);
-            std::string part;
-            while (std::getline(ss, part, ',')) {
-                size_t pipe_pos = part.find('|');
-                std::string cleaned = (pipe_pos != std::string::npos) ? part.substr(0, pipe_pos) : part;
-                
-                size_t start = cleaned.find_first_not_of(" \t\r\n");
-                if (start != std::string::npos) {
-                    cleaned = cleaned.substr(start);
-                    size_t space_pos = cleaned.find(' ');
-                    std::string r_pkg = (space_pos != std::string::npos) ? cleaned.substr(0, space_pos) : cleaned;
-                    replaces_provides.insert(r_pkg);
-                }
-            }
-        }
-
-        if (c_data.count("Breaks")) {
-            auto parsed_brk = _parse_constraints(c_data.at("Breaks"));
-            for (const auto& [brk_pkg, reqs] : parsed_brk) {
-                bool is_essential = ESSENTIAL_PACKAGES.count(brk_pkg) > 0;
-                check_and_queue(brk_pkg, reqs, parent_metadata, true, is_essential);
-            }
-        }
-    };
-
-    // START MAIN RESOLUTION LOOP    
     std::map<std::string, std::string> root_control = _get_raw_control_data(file_path);
-    enqueued.insert(metadata.Package);
-    resolved_packages[metadata.Package] = metadata; 
-    std::vector<PackageMetadata> final_metadata_list;
+    parse_and_queue_control_data(ctx, root_control, metadata);
 
-    
-    process_control_data(root_control, metadata);
-    try{
-        while (!queue.empty()) {
-            std::string current_pkg = queue.front();
-            queue.pop();
+    try {
+        this->resolve_queued_packages(ctx);
 
-            std::vector<std::pair<std::string, std::string>> constraints = global_constraints[current_pkg];
-            std::string best_version = _find_best_version(current_pkg, constraints);
+        this->remove_ghost_dependencies(ctx);
 
-            if (best_version.empty()) {
-                throw std::runtime_error("Unresolvable constraints! No version of " + current_pkg + " satisfies the requirements.");
-            }
-
-            if (resolved_packages.count(current_pkg) && resolved_packages[current_pkg].Version == best_version) {
-                continue;
-            }
-
-            std::string target_arch = _target_arch_or_all(current_pkg, best_version, arch);
-            if (target_arch.empty()) {
-                throw std::runtime_error("Architecture " + arch + " not found for " + current_pkg + "_" + best_version);
-            }
-
-            std::string dl_path;
-            try {
-                dl_path = get_package_file(current_pkg, best_version, target_arch);
-            } catch (const std::exception& e) {
-                throw std::runtime_error("Failed to download " + current_pkg + ": " + std::string(e.what()));
-            }
-
-            PackageMetadata pkg_meta = get_package_metadata(dl_path);
-            resolved_packages[current_pkg] = pkg_meta;
-
-            std::map<std::string, std::string> curr_control = _get_raw_control_data(dl_path);
-            process_control_data(curr_control, pkg_meta);
-        }
-
-        for (auto& [pkg_name, meta] : resolved_packages) {
-            auto it = meta.Dependencies.begin();
-            while (it != meta.Dependencies.end()) {
-                const std::string& dep_name = (*it)[0];
-                
-                if (resolved_packages.find(dep_name) == resolved_packages.end()) {
-                    spdlog::warn("Removing ghost dependency {} from {}", dep_name, pkg_name);
-                    it = meta.Dependencies.erase(it);
-                } else {
-                    (*it)[1] = resolved_packages[dep_name].Version;
-                    (*it)[2] = resolved_packages[dep_name].Architecture;
-                    ++it;
-                }
-            }
-        }
-
-        for (const auto& edge : dependency_edges) {
-            const std::string& parent_name = edge.first;
-            const std::string& child_name = edge.second;
-
-            if (resolved_packages.count(parent_name) && resolved_packages.count(child_name)) {
-                PackageMetadata& parent_meta = resolved_packages[parent_name];
-                const PackageMetadata& child_meta = resolved_packages[child_name];
-                
-                bool exists = false;
-                for (const auto& dep : parent_meta.Dependencies) {
-                    if (dep[0] == child_name) { exists = true; break; }
-                }
-                
-                if (!exists) {
-                    parent_meta.Dependencies.push_back({
-                        child_meta.Package, 
-                        child_meta.Version, 
-                        child_meta.Architecture
-                    });
-                }
-            }
-        }
-
-        final_metadata_list.reserve(resolved_packages.size() - 1);
-        for (const auto& [pkg_name, meta] : resolved_packages) {
-            if (pkg_name != metadata.Package) 
-                final_metadata_list.push_back(meta);
-        }
-
-    }catch(const std::exception& e){
-        try{
-            if (fs::exists(this->download_path)) 
-                fs::remove_all(this->download_path);
-            
-            fs::create_directories(this->download_path);
-
-        } catch(const std::exception& inner_e) { 
-            spdlog::critical("Cleanup failed: {}", inner_e.what());
-        }
-
+        this->link_dependency(ctx);
+        
+        return this->extract_final_metadata(ctx, metadata.Package);
+        
+    } catch (const std::exception& e) {
+        this->cleanup_download_path();
+        
         throw std::runtime_error("Dependency resolution failed: " + std::string(e.what()));
     }
+}
 
+void DebianPackageService::process_dependency_requirements(
+    ResolutionContext& ctx, 
+    const std::string& pkg, 
+    const std::vector<std::pair<std::string, std::string>>& reqs, 
+    const PackageMetadata& parent_metadata, 
+    bool invert, 
+    bool is_essential_break) 
+{
+    if (IGNORE_PACKAGES.count(pkg)) return;
+
+    auto& current_constraints_for_pkg = ctx.global_constraints[pkg];
+    std::vector<std::pair<std::string, std::string>> new_constraints;
+    
+    for (const auto& req : reqs) {
+        std::string op = req.first;
+        std::string ver = req.second;
+        
+        if (invert) {
+            auto it = DpkgOps::inverse_map.find(op);
+            if (it != DpkgOps::inverse_map.end()) {
+                op = it->second;
+            } else {
+                spdlog::warn("Unknown operator {} for inversion. Defaulting to '='", op);
+                op = DpkgOps::EQ;
+            }
+        }
+        
+        new_constraints.push_back({op, ver});
+        current_constraints_for_pkg.push_back({op, ver});
+    }
+    
+    if (ctx.resolved_packages.count(pkg)) {
+        std::string resolved_ver = ctx.resolved_packages[pkg].Version;
+        for (const auto& req : new_constraints) {
+            if (!_compare_versions(resolved_ver, req.first, req.second)) {
+                spdlog::warn("Version conflict! Have {} v{}, but need {} {}. Re-queueing to find middle ground.", 
+                             pkg, resolved_ver, req.first, req.second);
+                ctx.queue.push(pkg);
+                break;
+            }
+        }
+    }
+    
+    bool should_queue = !invert || is_essential_break;
+    
+    if (should_queue) {
+        ctx.dependency_links.push_back({parent_metadata.Package, pkg});
+        
+        if (!ctx.enqueued.count(pkg)) {
+            ctx.enqueued.insert(pkg);
+            ctx.queue.push(pkg);
+        }
+    }
+}
+
+void DebianPackageService::parse_and_queue_control_data(
+    ResolutionContext& ctx, 
+    const std::map<std::string, std::string>& c_data, 
+    const PackageMetadata& parent_metadata) 
+{
+    std::string d_str = c_data.count(DebianFields::DEPENDS) ? c_data.at(DebianFields::DEPENDS) : "";
+    std::string pd_str = c_data.count(DebianFields::PRE_DEPENDS) ? c_data.at(DebianFields::PRE_DEPENDS) : "";
+    
+    std::string combined_depends = d_str;
+    if (!pd_str.empty()) {
+        if (!combined_depends.empty()) combined_depends += ", ";
+        combined_depends += pd_str;
+    }
+
+    auto parsed_d = _parse_constraints(combined_depends);
+    for (const auto& [dep_pkg, reqs] : parsed_d) {
+        process_dependency_requirements(ctx, dep_pkg, reqs, parent_metadata, false, false);
+    }
+
+    if (c_data.count(DebianFields::REPLACES)) {
+        std::string rep_str = c_data.at(DebianFields::REPLACES);
+        std::stringstream ss(rep_str);
+        std::string part;
+        while (std::getline(ss, part, ',')) {
+            size_t pipe_pos = part.find('|');
+            std::string cleaned = (pipe_pos != std::string::npos) ? part.substr(0, pipe_pos) : part;
+            
+            size_t start = cleaned.find_first_not_of(" \t\r\n");
+            if (start != std::string::npos) {
+                cleaned = cleaned.substr(start);
+                size_t space_pos = cleaned.find(' ');
+                std::string r_pkg = (space_pos != std::string::npos) ? cleaned.substr(0, space_pos) : cleaned;
+                ctx.replaces_provides.insert(r_pkg);
+            }
+        }
+    }
+
+    if (c_data.count(DebianFields::BREAK)) {
+        auto parsed_brk = _parse_constraints(c_data.at(DebianFields::BREAK));
+        for (const auto& [brk_pkg, reqs] : parsed_brk) {
+            bool is_essential = ESSENTIAL_PACKAGES.count(brk_pkg) > 0;
+            process_dependency_requirements(ctx, brk_pkg, reqs, parent_metadata, true, is_essential);
+        }
+    }
+}
+
+void DebianPackageService::resolve_queued_packages(ResolutionContext& ctx) 
+{
+    while (!ctx.queue.empty()) {
+        std::string current_pkg = ctx.queue.front();
+        ctx.queue.pop();
+
+        std::vector<std::pair<std::string, std::string>> constraints = ctx.global_constraints[current_pkg];
+        std::string best_version = _find_best_version(current_pkg, constraints);
+
+        if (best_version.empty()) {
+            throw std::runtime_error("Unresolvable constraints! No version of " + current_pkg + " satisfies the requirements.");
+        }
+
+        if (ctx.resolved_packages.count(current_pkg) && ctx.resolved_packages[current_pkg].Version == best_version) {
+            continue;
+        }
+
+        std::string target_arch = _target_arch_or_all(current_pkg, best_version, ctx.arch);
+        if (target_arch.empty()) {
+            throw std::runtime_error("Architecture " + ctx.arch + " not found for " + current_pkg + "_" + best_version);
+        }
+
+        std::string dl_path;
+        try {
+            dl_path = get_package_file(current_pkg, best_version, target_arch);
+        } catch (const std::exception& e) {
+            throw std::runtime_error("Failed to download " + current_pkg + ": " + std::string(e.what()));
+        }
+
+        PackageMetadata pkg_meta = get_package_metadata(dl_path);
+        ctx.resolved_packages[current_pkg] = pkg_meta;
+
+        std::map<std::string, std::string> curr_control = _get_raw_control_data(dl_path);
+        parse_and_queue_control_data(ctx, curr_control, pkg_meta);
+    }
+}
+
+void DebianPackageService::remove_ghost_dependencies(ResolutionContext& ctx) 
+{
+    for (auto& [pkg_name, meta] : ctx.resolved_packages) {
+        auto it = meta.Dependencies.begin();
+        while (it != meta.Dependencies.end()) {
+            const std::string& dep_name = (*it)[0];
+            
+            if (ctx.resolved_packages.find(dep_name) == ctx.resolved_packages.end()) {
+                spdlog::warn("Removing ghost dependency {} from {}", dep_name, pkg_name);
+                it = meta.Dependencies.erase(it);
+            } else {
+                (*it)[1] = ctx.resolved_packages[dep_name].Version;
+                (*it)[2] = ctx.resolved_packages[dep_name].Architecture;
+                ++it;
+            }
+        }
+    }
+}
+
+void DebianPackageService::link_dependency(ResolutionContext& ctx) 
+{
+    for (const auto& link : ctx.dependency_links) {
+        const std::string& parent_name = link.first;
+        const std::string& child_name = link.second;
+
+        if (ctx.resolved_packages.count(parent_name) && ctx.resolved_packages.count(child_name)) {
+            PackageMetadata& parent_meta = ctx.resolved_packages[parent_name];
+            const PackageMetadata& child_meta = ctx.resolved_packages[child_name];
+            
+            bool exists = false;
+            for (const auto& dep : parent_meta.Dependencies) {
+                if (dep[0] == child_name) { exists = true; break; }
+            }
+            
+            if (!exists) {
+                parent_meta.Dependencies.push_back({
+                    child_meta.Package, 
+                    child_meta.Version, 
+                    child_meta.Architecture
+                });
+            }
+        }
+    }
+}
+
+std::vector<PackageMetadata> DebianPackageService::extract_final_metadata(
+    const ResolutionContext& ctx, 
+    const std::string& root_package) 
+{
+    std::vector<PackageMetadata> final_metadata_list;
+    final_metadata_list.reserve(ctx.resolved_packages.size() - 1);
+    
+    for (const auto& [pkg_name, meta] : ctx.resolved_packages) {
+        if (pkg_name != root_package) {
+            final_metadata_list.push_back(meta);
+        }
+    }
     return final_metadata_list;
+}
+
+void DebianPackageService::cleanup_download_path() 
+{
+    try {
+        if (fs::exists(this->download_path)) {
+            fs::remove_all(this->download_path);
+        }
+        fs::create_directories(this->download_path);
+    } catch (const std::exception& inner_e) { 
+        spdlog::critical("Cleanup failed: {}", inner_e.what());
+    }
 }
 
 bool DebianPackageService::is_system_pkg(const std::string &pkg_name)
@@ -843,10 +863,10 @@ json DebianPackageService::get_status(const std::string &filename) {
 
         while (std::getline(ss, line)) {
             status_block += line + "\n";
-            if (line.find("Package: ") == 0) {
+            if (line.find(std::string(DebianFields::PACKAGE) + ": ") == 0) {
                 name = line.substr(9);
                 status_block += "Status: install ok installed\n";
-            } else if (line.find("Architecture: ") == 0) {
+            } else if (line.find(std::string(DebianFields::ARCH) + ": ") == 0) {
                 arch = line.substr(14);
             }
         }

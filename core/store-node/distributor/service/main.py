@@ -49,8 +49,8 @@ async def get_packages_by_hash(SHA256: str):
     return result
 
 @service.get("/download_pkg")
-async def get_download_package(Store_path: str):
-    folder_path = os.path.join(STORE, Store_path)
+async def get_download_package(Store_Path: str):
+    folder_path = os.path.join(STORE, Store_Path)
     if not os.path.isdir(folder_path):
         raise HTTPException(status_code=404, detail="Folder not found")
 
@@ -74,9 +74,9 @@ async def get_download_package(Store_path: str):
     )
 
 @service.get("/recipe_pkg")
-async def get_recipe_pkg(Store_path: str):
-    folder_path = os.path.join(STORE, Store_path)
-    
+async def get_recipe_pkg(Store_Path: str):
+    folder_path = os.path.join(STORE, Store_Path)
+
     if not os.path.isdir(folder_path):
         raise HTTPException(status_code=404, detail=f"Folder not found: {folder_path}")
 
