@@ -23,7 +23,7 @@ private:
         std::vector<bool> stackMember;
         std::stack<std::size_t> st;
         std::size_t timer = 0;
-        std::vector<EdgeToCut> edges_to_cut;
+        std::set<EdgeToCut> edges_to_cut;
 
         SCCState(std::size_t n) 
             : disc(n, -1), low(n, -1), stackMember(n, false) {}
@@ -71,7 +71,7 @@ private:
      * @param edges_to_cut The list of cycle-causing edges found by scc_detection.
      * @throws HardConflictException if a complex cycle cannot be resolved automatically.
      */
-    void resolve_scc(const std::vector<EdgeToCut>& edges_to_cut);
+    void resolve_scc(std::vector<EdgeToCut>& edges_to_cut);
 
     /**
      * @brief Maps a sorted list of indices back to a list of PackageMetadata.

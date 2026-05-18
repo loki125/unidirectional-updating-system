@@ -10,7 +10,11 @@ GSO::GSO(const std::vector<PackageMetadata>& packages) : pgraph(graph_builder(pa
     Graph& graph = pgraph.graph();
 
     std::vector<EdgeToCut> edges_to_cut = scc_detection(graph);
-    this->resolve_scc(edges_to_cut);
+    while (!edges_to_cut.empty()) {
+        this->resolve_scc(edges_to_cut);
+        
+        edges_to_cut = scc_detection(graph);
+    }
 
     std::vector<std::size_t> sorted_vector = sort_algo(graph);
 
@@ -58,8 +62,8 @@ PackageGraph GSO::graph_builder(const std::vector<PackageMetadata>& pkg_list)
         for(const auto& dep_vector : unprased_depends){
             struct Package dep{};
 
-            dep.name = dep_vector.at(0); //package
-            dep.version = dep_vector.at(1); //version
+            dep.name = dep_vector.name;
+            dep.version = dep_vector.version;
 
             depends.emplace_back(dep);
         }
@@ -197,7 +201,7 @@ void GSO::scc_dfs(std::size_t u, const Graph &graph, SCCState &state) {
     }
 
     if (size == CONFLICT_TYPE_THRESHOLD) {
-        state.edges_to_cut.push_back({
+        state.edges_to_cut.insert({
             component[0],
             component[1],
             ConflictType::SOFT
@@ -225,7 +229,7 @@ void GSO::scc_dfs(std::size_t u, const Graph &graph, SCCState &state) {
 
     auto [cut_u, cut_v] = find_cut_edge(component);
 
-    state.edges_to_cut.push_back({
+    state.edges_to_cut.insert({
         cut_u,
         cut_v,
         ConflictType::HARD
@@ -241,35 +245,43 @@ std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph) {
         }
     }
 
-    return std::move(state.edges_to_cut);
+    return std::vector<EdgeToCut>(state.edges_to_cut.begin(), state.edges_to_cut.end());;
 }
 
-void GSO::resolve_scc(const std::vector<EdgeToCut>& edges_to_cut) {
-    for (const auto& edge : edges_to_cut) {
+void GSO::resolve_scc(std::vector<EdgeToCut>& edges_to_cut) {
+    for (auto& edge : edges_to_cut) {
+        if (edge.type == ConflictType::HARD) {
+            PackageMetadata culprit = pgraph.get_package(edge.u).package_metadata;
+            std::string dest_pkg_name = pgraph.get_package(edge.v).package_metadata.Package;
+    
+            if(SYS_PKGS.find(dest_pkg_name) != SYS_PKGS.end())
+                    edge.type = ConflictType::SOFT;
+            else{
+                spdlog::error("[Cycle Breaker] Hard Cycle  Detected originating from {} v{}. Backtracking...", 
+                            culprit.Package, culprit.Version);
+                
+                throw HardConflictException(culprit.Package, culprit.Version);
+            }
+        }
+
         if (edge.type == ConflictType::SOFT) {
-            spdlog::warn("[Cycle Breaker] Size 2 Cycle Detected: ID {} <--> ID {}. Resolving Soft Conflict.", edge.u, edge.v);
             pgraph.graph().rm_edge(edge.u, edge.v);
             std::string dest = pgraph.get_package(edge.v).package_metadata.Package;
             PackageMetadata& source = pgraph.get_package(edge.u).package_metadata;
 
-            std::vector<std::vector<std::string>>&  source_depends = source.Dependencies;
+            spdlog::warn("[Cycle Breaker] Resolving Soft Conflict {} --> {}.", source.Package, dest);
+
+            std::vector<Depend>& source_depends = source.Dependencies;
             size_t i = 0;
-            for(std::vector<std::string>& dep : source_depends){
-                if(dep[0] == dest){
+            for(Depend& dep : source_depends){
+                if(dep.name == dest){
                     break;
                 }
                 i++;
             }
             source_depends.erase(source_depends.begin() + i);
         } 
-        else if (edge.type == ConflictType::HARD) {
-            PackageMetadata culprit = pgraph.get_package(edge.u).package_metadata;
-            
-            spdlog::error("[Cycle Breaker] Hard Cycle (>2) Detected originating from {} v{}. Backtracking...", 
-                          culprit.Package, culprit.Version);
-            
-            throw HardConflictException(culprit.Package, culprit.Version);
-        }
+
     }
 }
 

@@ -276,10 +276,9 @@ private:
      * @brief Resolves best version and architecture for a list of dependencies.
      * @param depends_str Raw dependency string.
      * @param target_arch Requested hardware architecture.
-     * @return std::vector<std::vector<std::string>> Resolved package arrays.
+     * @return std::vector<Depend> Resolved package arrays.
      */
-    std::vector<std::vector<std::string>> _resolve_dependencies(const std::string& depends_str, 
-                                                                const std::string& target_arch);
+    std::vector<Depend> _resolve_dependencies(const std::string& depends_str, const std::string& target_arch);
 
     /**
      * @brief Computes the SHA1 hash of a file.
@@ -352,6 +351,14 @@ private:
      * @param ctx The current dependency resolution context.
      */
     void link_dependency(ResolutionContext& ctx);
+
+    /**
+     * @brief Handles virtual packages by querying reverse provides and returning the real package info.
+     * @param name The name of the virtual package.
+     * @param parent_arch The architecture of the parent package requiring this virtual package.
+     * @return depend A tuple containing the real package name, version, and architecture.
+     */
+    Depend handle_virtual_packages(const std::string& name, const std::string& parent_arch);
 
     /**
      * @brief Filters the resolution context to extract final metadata for all dependencies.

@@ -47,7 +47,7 @@ fs::path UpdateBuilder::build(
 
         } catch (const HardConflictException& e) {
             spdlog::warn("Cycle blocked resolution! Banning {} == {}. Retrying resolver...", e.pkg_name, e.pkg_version);        
-            cycle_breaking_constraints[e.pkg_name].push_back({"!=", e.pkg_version});
+            cycle_breaking_constraints[e.pkg_name].push_back({DpkgOps::LT, e.pkg_version});
         }
     }
     std::vector<PackageMetadata> sorted_pkgs_for_manifest = global_sort->get_sorted_pkgs();

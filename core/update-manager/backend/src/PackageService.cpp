@@ -95,12 +95,11 @@ std::optional<std::string> DebianPackageService::extract_soname_from_archive(arc
     return sonames[0];
 }
 
-std::vector<std::vector<std::string>> DebianPackageService::_resolve_dependencies(const std::string& depends_str, 
-                                                                                const std::string& target_arch) {
+std::vector<Depend> DebianPackageService::_resolve_dependencies(const std::string& depends_str, const std::string& target_arch) {
     if (depends_str.empty()) return {};
 
     auto package_constraints = _parse_constraints(depends_str);
-    std::vector<std::vector<std::string>> resolved_list;
+    std::vector<Depend> resolved_list;
 
     for (const auto& [pkg_name, constraints] : package_constraints) {
         std::string best_version = _find_best_version(pkg_name, constraints);
@@ -109,14 +108,88 @@ std::vector<std::vector<std::string>> DebianPackageService::_resolve_dependencie
             std::string effective_arch = _target_arch_or_all(pkg_name, best_version, target_arch);
             
             if (!effective_arch.empty()) {
-                resolved_list.push_back({pkg_name, best_version, effective_arch});
+                resolved_list.push_back(Depend{pkg_name, best_version, effective_arch});
             }
         } else {
-            spdlog::warn("Could not resolve version for package: {} with given constraints", pkg_name);
+            Depend res = this->handle_virtual_packages(pkg_name, target_arch);
+            if(res.name == "")
+                throw std::runtime_error("Could not resolve version for package: " + pkg_name + " with given constraints");
+            
+            resolved_list.push_back(res);
+            
         }
     }
 
     return resolved_list;
+}
+
+Depend DebianPackageService::handle_virtual_packages(const std::string& name, const std::string& parent_arch) {
+    for (char c : name) {
+        if (!std::isalnum(c) && c != '-' && c != '.' && c != '+' && c != ':') {
+            spdlog::error("Invalid character in virtual package name: '{}'", name);
+            return Depend{"", "", ""};
+        }
+    }
+    
+    std::string search_name = name;
+    size_t name_colon = search_name.find(':');
+    if (name_colon != std::string::npos) {
+        search_name = search_name.substr(0, name_colon);
+    }
+
+    std::string output = execute_command("apt-cache showpkg " + search_name).stdout_res;
+
+    std::istringstream iss(output);
+    std::string line;
+    bool in_reverse_provides = false;
+    
+    std::string real_name = "";
+    std::string version = "";
+    std::string arch = parent_arch;
+
+    while (std::getline(iss, line)) {
+        if (line.find(std::string(DebianFields::R_PROVIDES) + ":") == 0) {
+            in_reverse_provides = true;
+            continue;
+        }
+
+        if (in_reverse_provides) {
+            if (line.empty() || line.find('(') == std::string::npos) {
+                break;
+            }
+
+            std::istringstream line_stream(line);
+            std::string full_name;
+            std::string temp_ver;
+            
+            if (line_stream >> full_name >> temp_ver) {
+                size_t colon_pos = full_name.find(':');
+                
+                if (colon_pos != std::string::npos) {
+                    std::string parsed_name = full_name.substr(0, colon_pos);
+                    std::string pkg_arch = full_name.substr(colon_pos + 1);
+
+                    if (pkg_arch != parent_arch && pkg_arch != "all" && pkg_arch != "any") {
+                        continue; 
+                    }
+                    real_name = parsed_name;
+                } else {
+                    real_name = full_name;
+                }
+                
+                version = temp_ver;
+                break;
+            }
+        }
+    }
+
+    if (real_name.empty()) {
+        throw std::runtime_error("Failed to resolve virtual package: " + name);
+        return Depend{"", "", ""};
+    }
+
+    spdlog::info("Virtual package {} resolved to {} with version {} and arch {}", name, real_name, version, arch);
+    return Depend{real_name, version, arch};
 }
 
 std::vector<json> DebianPackageService::get_package_instances(const std::string& pkg_name) {
@@ -422,6 +495,18 @@ std::string DebianPackageService::get_package_file(const std::string& pkg_name,
         throw std::runtime_error("Missing file name in metadata for " + pkg_name);
     }
 
+    if(fs::exists(file_name_str)) {
+        std::string actual_sha1 = _calculate_sha1(file_name_str);
+        if (actual_sha1 == expected_sha1) {
+            spdlog::info("File already exists and is valid: {}", file_name_str);
+            return file_name_str;
+        } else {
+            spdlog::warn("Existing file {} has invalid SHA1. Expected: {}, Actual: {}. Redownloading...", 
+                         file_name_str, expected_sha1, actual_sha1);
+            fs::remove(file_name_str);
+        }
+    }
+
     std::string endpoint = "/archive/debian/" + first_seen + "/" + path_str + "/" + encode_url(file_name.filename().string());
 
     httplib::Result res;
@@ -516,7 +601,7 @@ void DebianPackageService::process_dependency_requirements(
     bool invert, 
     bool is_essential_break) 
 {
-    if (IGNORE_PACKAGES.count(pkg)) return;
+    if (DebianFields::IGNORE_PACKAGES.count(pkg)) return;
 
     auto& current_constraints_for_pkg = ctx.global_constraints[pkg];
     std::vector<std::pair<std::string, std::string>> new_constraints;
@@ -603,7 +688,7 @@ void DebianPackageService::parse_and_queue_control_data(
     if (c_data.count(DebianFields::BREAK)) {
         auto parsed_brk = _parse_constraints(c_data.at(DebianFields::BREAK));
         for (const auto& [brk_pkg, reqs] : parsed_brk) {
-            bool is_essential = ESSENTIAL_PACKAGES.count(brk_pkg) > 0;
+            bool is_essential = DebianFields::ESSENTIAL_PACKAGES.count(brk_pkg) > 0;
             process_dependency_requirements(ctx, brk_pkg, reqs, parent_metadata, true, is_essential);
         }
     }
@@ -619,6 +704,38 @@ void DebianPackageService::resolve_queued_packages(ResolutionContext& ctx)
         std::string best_version = _find_best_version(current_pkg, constraints);
 
         if (best_version.empty()) {
+            try {
+                Depend v_dep = this->handle_virtual_packages(current_pkg, ctx.arch);
+                
+                if (!v_dep.name.empty() && v_dep.name != current_pkg) {
+                    spdlog::info("Package '{}' is virtual. Re-routing queue to real package '{}'", current_pkg, v_dep.name);
+                    
+                    auto& real_constraints = ctx.global_constraints[v_dep.name];
+                    best_version = _find_best_version(v_dep.name, real_constraints);
+                    if (best_version.empty()) 
+                        throw std::runtime_error("Virtual package " + current_pkg + " resolved to " + v_dep.name + ", but no version satisfies constraints.");
+                    
+                    for(const auto& c : constraints) {
+                        real_constraints.push_back(c);
+                    }
+                    
+                    for (auto& link : ctx.dependency_links) {
+                        if (link.second == current_pkg) {
+                            link.second = v_dep.name;
+                        }
+                    }
+                    
+                    if (!ctx.enqueued.count(v_dep.name)) {
+                        ctx.enqueued.insert(v_dep.name);
+                        ctx.queue.push(v_dep.name);
+                    }
+                    
+                    continue;
+                }
+            } catch (const std::exception& e) {
+                spdlog::debug("Virtual package resolution failed for {}: {}", current_pkg, e.what());
+            }
+
             throw std::runtime_error("Unresolvable constraints! No version of " + current_pkg + " satisfies the requirements.");
         }
 
@@ -651,14 +768,14 @@ void DebianPackageService::remove_ghost_dependencies(ResolutionContext& ctx)
     for (auto& [pkg_name, meta] : ctx.resolved_packages) {
         auto it = meta.Dependencies.begin();
         while (it != meta.Dependencies.end()) {
-            const std::string& dep_name = (*it)[0];
+            const std::string& dep_name = (*it).name;
             
             if (ctx.resolved_packages.find(dep_name) == ctx.resolved_packages.end()) {
                 spdlog::warn("Removing ghost dependency {} from {}", dep_name, pkg_name);
                 it = meta.Dependencies.erase(it);
             } else {
-                (*it)[1] = ctx.resolved_packages[dep_name].Version;
-                (*it)[2] = ctx.resolved_packages[dep_name].Architecture;
+                (*it).version = ctx.resolved_packages[dep_name].Version;
+                (*it).arch = ctx.resolved_packages[dep_name].Architecture;
                 ++it;
             }
         }
@@ -677,7 +794,7 @@ void DebianPackageService::link_dependency(ResolutionContext& ctx)
             
             bool exists = false;
             for (const auto& dep : parent_meta.Dependencies) {
-                if (dep[0] == child_name) { exists = true; break; }
+                if (dep.name == child_name) { exists = true; break; }
             }
             
             if (!exists) {

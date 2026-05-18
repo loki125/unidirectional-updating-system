@@ -10,6 +10,9 @@ import sys
 import signal
 import argparse
 
+# CHANGE TO RELATIVE DIRECTORY OF THIS SCRIPT
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # SUDO ENFORCEMENT
 if os.geteuid() != 0:
     print("\033[91m[ERROR] This script must be run as root!\033[0m")

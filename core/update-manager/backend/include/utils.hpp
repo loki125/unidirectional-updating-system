@@ -45,14 +45,14 @@ using constraint_map = std::map<std::string, std::vector<std::pair<std::string, 
     - Constants for package management (e.g., ignored packages, essential packages) 
 */
 
-const std::set<std::string> IGNORE_PACKAGES = {"dpkg", "awk"};
-const std::set<std::string> ESSENTIAL_PACKAGES = {"base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"};
+static const std::set<std::string> SYS_PKGS = {"libc6", "base-files"};
 
 namespace DebianFields {
     constexpr const char* Debian = "Debian";
     constexpr const char* BREAK = "Breaks";
     constexpr const char* REPLACES = "Replaces";
     constexpr const char* PROVIDES = "Provides";
+    constexpr const char* R_PROVIDES = "Reverse Provides";
     constexpr const char* CONFLICTS = "Conflicts";
     constexpr const char* DEPENDS = "Depends";
     constexpr const char* PRE_DEPENDS = "Pre-Depends";
@@ -62,6 +62,12 @@ namespace DebianFields {
     constexpr const char* INSTALLED_SIZE = "Installed-Size";
     constexpr const char* SHA1 = "SHA1";
     constexpr const char* SHA256 = "SHA256";
+
+    static const std::set<std::string> IGNORE_PACKAGES = {"dpkg"};
+    static const std::set<std::string> ESSENTIAL_PACKAGES = {
+        "base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"
+    };
+
 }
 
 namespace DpkgOps {
@@ -102,6 +108,11 @@ struct EdgeToCut {
     std::size_t u;
     std::size_t v;
     ConflictType type;
+
+    bool operator<(const EdgeToCut& other) const {
+        if (u != other.u) return u < other.u;
+        return v < other.v;
+    }
 };
 
 class HardConflictException : public std::runtime_error {
@@ -197,13 +208,23 @@ inline CommandResult execute_command(const std::string& cmd) {
     return {WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : -1, out, err};
 }
 
+struct Depend {
+    std::string name;
+    std::string version;
+    std::string arch;
+
+    json to_json() const {
+        return json::array({this->name, this->version, this->arch});
+    }
+};
+
 struct PackageMetadata {
     std::string Package;
     std::string Version;
     std::string Type;
     std::string Architecture;
     std::string Store_Path;
-    std::vector<std::vector<std::string>> Dependencies;
+    std::vector<Depend> Dependencies;
     std::string SHA256;
     long long Installed_Size = 0;
     long long Size = 0;
@@ -228,13 +249,17 @@ struct PackageMetadata {
     }
 
     json to_json() const {
+        std::vector<json> deps_json;
+        for (const auto& dep : this->Dependencies) 
+            deps_json.push_back(dep.to_json());
+
         return json{
             {"Package", this->Package},
             {"Version", this->Version},
             {"Type", this->Type},
             {"Architecture", this->Architecture},
             {"Store_Path", this->Store_Path},
-            {"Dependencies", this->Dependencies},
+            {"Dependencies", deps_json},
             {"SHA256", this->SHA256},
             {"Installed-Size", this->Installed_Size},
             {"Size", this->Size},
