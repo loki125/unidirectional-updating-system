@@ -209,29 +209,27 @@ void GSO::scc_dfs(std::size_t u, const Graph &graph, SCCState &state) {
         return;
     }
 
-    auto find_cut_edge = [&](const std::vector<std::size_t> &nodes)
-        -> std::pair<std::size_t, std::size_t>
-    {
-        auto is_in_component = [&](std::size_t node) {
-            return std::find(nodes.begin(), nodes.end(), node) != nodes.end();
-        };
+    std::vector<bool> in_component(graph.size(), false);
+    for (std::size_t node : component) {
+        in_component[node] = true;
+    }
 
-        for (std::size_t nodeA : nodes) {
-            for (std::size_t nodeB : graph.neighbors(nodeA)) {
-                if (is_in_component(nodeB)) {
-                    return {nodeA, nodeB};
-                }
+    for (std::size_t nodeA : component) {
+        for (std::size_t nodeB : graph.neighbors(nodeA)) {
+            if (in_component[nodeB]) { 
+                state.edges_to_cut.insert({
+                    nodeA,
+                    nodeB,
+                    ConflictType::HARD
+                });
+                return; 
             }
         }
-
-        return {nodes[0], nodes[1]};
-    };
-
-    auto [cut_u, cut_v] = find_cut_edge(component);
+    }
 
     state.edges_to_cut.insert({
-        cut_u,
-        cut_v,
+        component[0],
+        component[1],
         ConflictType::HARD
     });
 }

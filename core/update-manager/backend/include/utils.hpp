@@ -129,7 +129,7 @@ public:
  * and returns the exit status.
  */
 
- inline std::string encode_url(const std::string &value) {
+inline std::string encode_url(const std::string &value) {
     std::ostringstream escaped;
     escaped.fill('0');
     escaped << std::hex;

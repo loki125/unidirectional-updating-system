@@ -96,7 +96,7 @@ public:
      * @param pkg_name The name of the package.
      * @return true if it is a system package, false otherwise.
      */
-    virtual bool is_system_pkg(const std::string& pkg_name) = 0;
+    virtual bool is_system_pkg(const std::string& pkg_name) const = 0;
 
     /**
      * @brief Builds a map of files and libraries provided by downloaded packages.
@@ -192,7 +192,7 @@ public:
      * @param pkg_name The name of the package.
      * @return true if system package, false otherwise.
      */
-    bool is_system_pkg(const std::string& pkg_name) override;
+    bool is_system_pkg(const std::string& pkg_name) const override;
 
     /**
      * @brief Extracts files, executables, and SONAMEs from .deb archives using libarchive.
@@ -279,6 +279,45 @@ private:
      * @return std::vector<Depend> Resolved package arrays.
      */
     std::vector<Depend> _resolve_dependencies(const std::string& depends_str, const std::string& target_arch);
+
+    /**
+     * @brief Collects transitive system dependencies for a given system package.
+     * 
+     * @param bundled_deps Set to populate with the discovered system dependency names.
+     * @param dep_name The name of the system dependency being queried.
+     * @param version The version of the system dependency.
+     * @param global_sort Object managing global ordering and subgraph resolution.
+     */
+    void _collect_subgraph_deps(
+        std::unordered_set<std::string>& bundled_deps, 
+        const std::string& dep_name, 
+        const std::string& version, 
+        const GSO& global_sort) const;
+
+    /**
+     * @brief Evaluates a package's full dependencies and aggregates bundled system-level dependencies.
+     * 
+     * @param full_deps The resolved subgraph of dependencies for the current package.
+     * @param current_pkg_name The name of the primary package (to prevent self-filtering).
+     * @param global_sort Object managing global ordering and subgraph resolution.
+     * @return std::unordered_set<std::string> A set of package names representing bundled system dependencies.
+     */
+    std::unordered_set<std::string> _get_bundled_dependencies(
+        const std::vector<PackageMetadata>& full_deps, 
+        const std::string& current_pkg_name, 
+        const GSO& global_sort) const;
+
+    /**
+     * @brief Inserts provided library sonames and their full paths into the result map.
+     * 
+     * @param dec_path The store path of the dependency package.
+     * @param providers Vector of provided files (name, soname, is_executable).
+     * @param result_submap The nested map (for a specific store_path) where results are inserted.
+     */
+    void _insert_provided_dependencies(
+        const fs::path& dec_path, 
+        const provider_vector& providers, 
+        std::map<std::string, fs::path>& result_submap) const;
 
     /**
      * @brief Computes the SHA1 hash of a file.

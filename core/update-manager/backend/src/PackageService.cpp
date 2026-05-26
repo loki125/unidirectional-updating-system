@@ -125,16 +125,16 @@ std::vector<Depend> DebianPackageService::_resolve_dependencies(const std::strin
 
 Depend DebianPackageService::handle_virtual_packages(const std::string& name, const std::string& parent_arch) {
     for (char c : name) {
-        if (!std::isalnum(c) && c != '-' && c != '.' && c != '+' && c != ':') {
-            spdlog::error("Invalid character in virtual package name: '{}'", name);
+        if (!std::isalnum(c) && c != '-' && c != '.' && c != '+' && c != ':') { 
+            spdlog::error("Invalid character in virtual package name: '{}'", name); 
             return Depend{"", "", ""};
         }
     }
     
     std::string search_name = name;
     size_t name_colon = search_name.find(':');
-    if (name_colon != std::string::npos) {
-        search_name = search_name.substr(0, name_colon);
+    if (name_colon != std::string::npos) { 
+        search_name = search_name.substr(0, name_colon); 
     }
 
     std::string output = execute_command("apt-cache showpkg " + search_name).stdout_res;
@@ -147,40 +147,46 @@ Depend DebianPackageService::handle_virtual_packages(const std::string& name, co
     std::string version = "";
     std::string arch = parent_arch;
 
-    while (std::getline(iss, line)) {
-        if (line.find(std::string(DebianFields::R_PROVIDES) + ":") == 0) {
-            in_reverse_provides = true;
+    while (std::getline(iss, line)) { 
+        if (line.find(std::string(DebianFields::R_PROVIDES) + ":") == 0) { 
+            in_reverse_provides = true; 
             continue;
         }
 
-        if (in_reverse_provides) {
-            if (line.empty() || line.find('(') == std::string::npos) {
-                break;
-            }
-
-            std::istringstream line_stream(line);
-            std::string full_name;
-            std::string temp_ver;
-            
-            if (line_stream >> full_name >> temp_ver) {
-                size_t colon_pos = full_name.find(':');
-                
-                if (colon_pos != std::string::npos) {
-                    std::string parsed_name = full_name.substr(0, colon_pos);
-                    std::string pkg_arch = full_name.substr(colon_pos + 1);
-
-                    if (pkg_arch != parent_arch && pkg_arch != "all" && pkg_arch != "any") {
-                        continue; 
-                    }
-                    real_name = parsed_name;
-                } else {
-                    real_name = full_name;
-                }
-                
-                version = temp_ver;
-                break;
-            }
+        if (!in_reverse_provides) { 
+            continue;
         }
+
+        if (line.empty() || line.find('(') == std::string::npos) { 
+            break; 
+        }
+
+        std::istringstream line_stream(line);
+        std::string full_name;
+        std::string temp_ver;
+        
+        if (!(line_stream >> full_name >> temp_ver)) { 
+            continue; 
+        }
+        
+        size_t colon_pos = full_name.find(':');
+        
+        if (colon_pos == std::string::npos) { 
+            real_name = full_name; 
+            version = temp_ver;
+            break;
+        }
+
+        std::string parsed_name = full_name.substr(0, colon_pos);
+        std::string pkg_arch = full_name.substr(colon_pos + 1);
+
+        if (pkg_arch != parent_arch && pkg_arch != "all" && pkg_arch != "any") { 
+            continue; 
+        }
+        
+        real_name = parsed_name;
+        version = temp_ver;
+        break;
     }
 
     if (real_name.empty()) {
@@ -835,7 +841,7 @@ void DebianPackageService::cleanup_download_path()
     }
 }
 
-bool DebianPackageService::is_system_pkg(const std::string &pkg_name)
+bool DebianPackageService::is_system_pkg(const std::string &pkg_name) const
 {
     if (pkg_name == "libc6") return true;
     return false;
@@ -908,6 +914,51 @@ provider_map DebianPackageService::build_provider_map(const std::vector<PackageM
     return p_map;
 }
 
+void DebianPackageService::_collect_subgraph_deps(
+    std::unordered_set<std::string>& bundled_deps, 
+    const std::string& dep_name, 
+    const std::string& version, 
+    const GSO& global_sort) const
+{
+    auto sys_deps = global_sort.subgraph_order(dep_name, version);
+    for (const auto& sys_dep : sys_deps) {
+        std::string sys_dep_name = sys_dep.Package;
+        if (sys_dep_name != dep_name) {
+            bundled_deps.insert(sys_dep_name);
+        }
+    }
+}
+
+std::unordered_set<std::string> DebianPackageService::_get_bundled_dependencies(
+    const std::vector<PackageMetadata>& full_deps, 
+    const std::string& current_pkg_name, 
+    const GSO& global_sort) const
+{
+    std::unordered_set<std::string> bundled_deps;
+    
+    for (const auto& dep : full_deps) {
+        std::string dep_name = dep.Package;
+        if (this->is_system_pkg(dep_name) && dep_name != current_pkg_name) {
+            _collect_subgraph_deps(bundled_deps, dep_name, dep.Version, global_sort);
+        }
+    }
+    
+    return bundled_deps;
+}
+
+void DebianPackageService::_insert_provided_dependencies(
+    const fs::path& dec_path, 
+    const provider_vector& providers, 
+    std::map<std::string, fs::path>& result_submap) const
+{
+    for (const auto& [provided_name, provided_soname, is_executable] : providers) {
+        result_submap.insert({
+            provided_soname, 
+            dec_path / provided_name
+        });
+    }
+}
+
 forest_map DebianPackageService::generate_forests(const provider_map &global_provider_map, const GSO &global_sort)
 {
     forest_map results;
@@ -919,20 +970,8 @@ forest_map DebianPackageService::generate_forests(const provider_map &global_pro
         const auto store_path = pkg.Store_Path;
 
         auto full_deps = global_sort.subgraph_order(name, version);
-        std::unordered_set<std::string> bundled_deps;
         
-        for (const auto& dep : full_deps) {
-            std::string dep_name = dep.Package;
-            if (this->is_system_pkg(dep_name) && dep_name != name) {
-                auto sys_deps = global_sort.subgraph_order(dep_name, dep.Version);
-                for (const auto& sys_dep : sys_deps) {
-                    std::string sys_dep_name = sys_dep.Package;
-                    if (sys_dep_name != dep_name) {
-                        bundled_deps.insert(sys_dep_name);
-                    }
-                }
-            }
-        }
+        std::unordered_set<std::string> bundled_deps = _get_bundled_dependencies(full_deps, name, global_sort);
 
         for (const PackageMetadata& dec_pkg : full_deps) {
             std::string dec_name = dec_pkg.Package;
@@ -944,17 +983,13 @@ forest_map DebianPackageService::generate_forests(const provider_map &global_pro
             fs::path dec_path = dec_pkg.Store_Path;
             auto provider_it = global_provider_map.find(dec_path);
 
-            if (dec_path == store_path || provider_it == global_provider_map.end()) 
+            if (dec_path == store_path || provider_it == global_provider_map.end()) {
                 continue; 
+            }
                 
             spdlog::info("For package {}-{}, checking dependencies in subgraph order: {}", name, version, dec_name);
 
-            for(auto&[provided_name, provided_soname, is_executable] : provider_it->second) {
-                results[store_path].insert({
-                    provided_soname, 
-                    dec_path / provided_name
-                });
-            }
+            _insert_provided_dependencies(dec_path, provider_it->second, results[store_path]);
         }
     }
 

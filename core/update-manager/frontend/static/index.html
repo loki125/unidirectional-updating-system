@@ -287,8 +287,14 @@
             container.innerHTML = `<div class="col-span-full text-slate-500 font-mono text-sm py-10">...SCANNING_DATABASE...</div>`;
 
             try {
-                // Adjust params as per your backend
-                const res = await fetch(`/instance?package_name=${name}&type=${type}&architecture=${arch}`);
+                // UPDATE: Using URLSearchParams to automatically safely encode all characters
+                const params = new URLSearchParams({
+                    package_name: name,
+                    type: type,
+                    architecture: arch
+                });
+
+                const res = await fetch(`/instance?${params.toString()}`);
                 const data = await res.json();
 
                 container.innerHTML = "";
@@ -336,7 +342,14 @@
         async function fetchPackageInfo(name, version, arch) {
             log(`INSPECTING: ${name}_${version}`);
             try {
-                const res = await fetch(`/info?package_name=${name}&version=${version}&architecture=${arch}`);
+                // UPDATE: Using URLSearchParams to automatically safely encode all characters
+                const params = new URLSearchParams({
+                    package_name: name,
+                    version: version,
+                    architecture: arch
+                });
+
+                const res = await fetch(`/info?${params.toString()}`);
                 const data = await res.json();
                 
                 openModal(data, name, version, arch);
@@ -376,7 +389,14 @@
         async function executeBroadcast(name, version, arch) {
             log(`INIT_BROADCAST: ${name}...`);
             try {
-                const res = await fetch(`/update?package_name=${name}&version=${version}&architecture=${arch}`, {method: 'POST'});
+                // UPDATE: Using URLSearchParams to automatically safely encode all characters
+                const params = new URLSearchParams({
+                    package_name: name,
+                    version: version,
+                    architecture: arch
+                });
+
+                const res = await fetch(`/update?${params.toString()}`, {method: 'POST'});
                 if(res.ok) log(`SUCCESS: ${name} BROADCAST_COMPLETE`);
                 else log(`FAILED: ${name} BROADCAST_REJECTED`, true);
             } catch (e) {
