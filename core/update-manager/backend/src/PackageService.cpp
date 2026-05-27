@@ -10,14 +10,14 @@ void DebianPackageService::init() {
     spdlog::info("DebianPackageService initialized for {}", BASE_URL);
 }
 
-void DebianPackageService::cleanup() {
+void DebianPackageService::cleanup() noexcept{
     if (client) {
         spdlog::info("Cleaning up DebianPackageService resources...");
         client.reset(); 
     }
 }
 
-json DebianPackageService::_get_json(const std::string& endpoint) {
+json DebianPackageService::_get_json(const std::string& endpoint) noexcept{
     if (!client) {
         spdlog::error("HTTP client not initialized. Call init() first.");
         return nullptr;
@@ -102,14 +102,11 @@ std::vector<Depend> DebianPackageService::_resolve_dependencies(const std::strin
     std::vector<Depend> resolved_list;
 
     for (const auto& [pkg_name, constraints] : package_constraints) {
-        std::string best_version = _find_best_version(pkg_name, constraints);
+        auto [best_version, effective_arch] = _find_best_version(pkg_name, target_arch, constraints);
         
-        if (!best_version.empty()) {
-            std::string effective_arch = _target_arch_or_all(pkg_name, best_version, target_arch);
+        if (!best_version.empty() && !effective_arch.empty()) {
+            resolved_list.push_back(Depend{pkg_name, best_version, effective_arch});
             
-            if (!effective_arch.empty()) {
-                resolved_list.push_back(Depend{pkg_name, best_version, effective_arch});
-            }
         } else {
             Depend res = this->handle_virtual_packages(pkg_name, target_arch);
             if(res.name == "")
@@ -198,7 +195,7 @@ Depend DebianPackageService::handle_virtual_packages(const std::string& name, co
     return Depend{real_name, version, arch};
 }
 
-std::vector<json> DebianPackageService::get_package_instances(const std::string& pkg_name) {
+std::vector<json> DebianPackageService::get_package_instances(const std::string& pkg_name) noexcept{
     std::string endpoint = "/mr/binary/" + pkg_name + "/";
     json data = _get_json(endpoint);
 
@@ -308,7 +305,7 @@ std::string DebianPackageService::_target_arch_or_all(const std::string& pkg_nam
 
 bool DebianPackageService::_compare_versions(const std::string& v1, 
                                             const std::string& op, 
-                                            const std::string& v2) {
+                                            const std::string& v2) noexcept{
 
     std::string dpkg_op = DpkgOps::op_map.count(op) ? DpkgOps::op_map.at(op) : DpkgOps::CMD_EQ;
     std::string cmd = "dpkg --compare-versions '" + v1 + "' " + dpkg_op + " '" + v2 + "'";
@@ -352,44 +349,27 @@ std::map<std::string, std::string> DebianPackageService::_get_raw_control_data(c
     return control_data;
 }
 
-std::string DebianPackageService::_find_best_version(
-    const std::string& pkg_name, 
-    const std::vector<std::pair<std::string, std::string>>& constraints) 
+std::pair<std::string, std::string> DebianPackageService::_find_best_version(
+    const std::string& pkg_name,
+    const std::string& target_arch,
+    const std::vector<std::pair<std::string, std::string>>& constraints) noexcept
 {
     std::vector<json> instances = get_package_instances(pkg_name);
-    if (instances.empty()) {
-        return "";
-    }
-    std::vector<std::string> illegal_str = {"sparc"};
     std::vector<std::string> all_versions;
     all_versions.reserve(instances.size());
     
     for (const auto& i : instances) {
-        if (i.contains("version") && i["version"].is_string()) {
-            std::string ver = i["version"].get<std::string>();
-
-            bool is_illegal = std::any_of(illegal_str.begin(), illegal_str.end(), [&](const std::string& c) {
-                return ver.find(c) != std::string::npos;
-            });
-
-            if (is_illegal) {
-                spdlog::debug("Skipping version {} due to illegal substring", ver);
-                continue; 
-            }
+        if (i.contains("binary_version") && i["binary_version"].is_string()) {
+            std::string ver = i["binary_version"].get<std::string>();
 
             all_versions.push_back(ver);
         }
     }
 
     if (all_versions.empty()) 
-        throw std::runtime_error("no instances found for package " + pkg_name);
+        return std::make_pair("", "");
     
-
-    if (constraints.empty()) {
-        return all_versions.front();
-    }
-
-    std::string best_version;
+    std::pair<std::string, std::string> best_version_arch;
     for (const std::string& v : all_versions) {
         bool is_valid = true;
         
@@ -401,17 +381,22 @@ std::string DebianPackageService::_find_best_version(
                 is_valid = false;
                 break; 
             }
+
         }
 
         if (is_valid) {
-            best_version = v;
+            std::string v_arch = _target_arch_or_all(pkg_name, v, target_arch);
+            if(v_arch.empty())
+                continue; 
+            
+            best_version_arch = std::make_pair(v, v_arch);
             break;
         }
     }
-    if (best_version.empty()) 
-        throw std::runtime_error("No valid version found for " + pkg_name + " that satisfies all constraints");
+    if (best_version_arch.first.empty() || best_version_arch.second.empty()) 
+        throw std::runtime_error("No valid version or arch found for " + pkg_name + " that satisfies all constraints");
     
-    return best_version;
+    return best_version_arch;
 }
 
 std::map<std::string, std::vector<std::pair<std::string, std::string>>> 
@@ -707,7 +692,7 @@ void DebianPackageService::resolve_queued_packages(ResolutionContext& ctx)
         ctx.queue.pop();
 
         std::vector<std::pair<std::string, std::string>> constraints = ctx.global_constraints[current_pkg];
-        std::string best_version = _find_best_version(current_pkg, constraints);
+        auto [best_version, target_arch] = _find_best_version(current_pkg, ctx.arch, constraints);
 
         if (best_version.empty()) {
             try {
@@ -717,7 +702,8 @@ void DebianPackageService::resolve_queued_packages(ResolutionContext& ctx)
                     spdlog::info("Package '{}' is virtual. Re-routing queue to real package '{}'", current_pkg, v_dep.name);
                     
                     auto& real_constraints = ctx.global_constraints[v_dep.name];
-                    best_version = _find_best_version(v_dep.name, real_constraints);
+                    std::tie(best_version, target_arch) = _find_best_version(v_dep.name, ctx.arch, real_constraints);
+
                     if (best_version.empty()) 
                         throw std::runtime_error("Virtual package " + current_pkg + " resolved to " + v_dep.name + ", but no version satisfies constraints.");
                     
@@ -747,11 +733,6 @@ void DebianPackageService::resolve_queued_packages(ResolutionContext& ctx)
 
         if (ctx.resolved_packages.count(current_pkg) && ctx.resolved_packages[current_pkg].Version == best_version) {
             continue;
-        }
-
-        std::string target_arch = _target_arch_or_all(current_pkg, best_version, ctx.arch);
-        if (target_arch.empty()) {
-            throw std::runtime_error("Architecture " + ctx.arch + " not found for " + current_pkg + "_" + best_version);
         }
 
         std::string dl_path;
@@ -822,9 +803,7 @@ std::vector<PackageMetadata> DebianPackageService::extract_final_metadata(
     final_metadata_list.reserve(ctx.resolved_packages.size() - 1);
     
     for (const auto& [pkg_name, meta] : ctx.resolved_packages) {
-        if (pkg_name != root_package) {
-            final_metadata_list.push_back(meta);
-        }
+        final_metadata_list.push_back(meta);
     }
     return final_metadata_list;
 }

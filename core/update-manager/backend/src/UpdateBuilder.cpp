@@ -20,17 +20,13 @@ fs::path UpdateBuilder::build(
         file_list.clear();
         total_size_byte = 0;
 
-        file_list.push_back(f_file_path);
-        packages_for_manifest.push_back(metadata);
-        total_size_byte += metadata.Size;
-
-        std::vector<PackageMetadata> dependencies_metadata = service->get_recursive_dependencies(
+        std::vector<PackageMetadata> all_resolved_packages = service->get_recursive_dependencies(
             metadata, 
             f_file_path,
             cycle_breaking_constraints
         );
 
-        for (const auto& dep_meta : dependencies_metadata) {
+        for (const auto& dep_meta : all_resolved_packages) {
             std::string dep_file_path = service->download_path / dep_meta.Filename; 
             
             if (std::find(file_list.begin(), file_list.end(), dep_file_path) == file_list.end()) {

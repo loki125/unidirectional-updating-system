@@ -64,7 +64,14 @@ private:
      * @param graph The graph to analyze.
      * @return A list of edges that contribute to cycles and need resolution.
      */
-    static std::vector<EdgeToCut> scc_detection(const Graph &graph);
+    static std::vector<EdgeToCut> scc_detection(const Graph &graph, const std::vector<std::size_t>& root_nodes);
+
+    /** 
+    * @brief detect the current root of the graph
+    * @param graph The graph to analyze.
+    * @return A list of the root nodes.
+    */
+    static std::vector<std::size_t> resolve_roots(const Graph &graph);
 
     /**
      * @brief Resolves detected cycles based on their conflict type (SOFT or HARD).

@@ -8,12 +8,13 @@
 GSO::GSO(const std::vector<PackageMetadata>& packages) : pgraph(graph_builder(packages)){  
 
     Graph& graph = pgraph.graph();
+    std::vector<std::size_t> start_nodes = resolve_roots(graph);
 
-    std::vector<EdgeToCut> edges_to_cut = scc_detection(graph);
+    std::vector<EdgeToCut> edges_to_cut = scc_detection(graph, start_nodes);
     while (!edges_to_cut.empty()) {
         this->resolve_scc(edges_to_cut);
         
-        edges_to_cut = scc_detection(graph);
+        edges_to_cut = scc_detection(graph, start_nodes);
     }
 
     std::vector<std::size_t> sorted_vector = sort_algo(graph);
@@ -55,6 +56,7 @@ PackageGraph GSO::graph_builder(const std::vector<PackageMetadata>& pkg_list)
 
     for(const auto& pkg_meta : pkg_list){
         struct Package pkg(pkg_meta);
+        spdlog::info("\nPackage: {}_{}", pkg.name, pkg.version);
 
         std::vector<Package>& depends = pkg.dependencies;
         const auto& unprased_depends = pkg_meta.Dependencies;
@@ -65,6 +67,7 @@ PackageGraph GSO::graph_builder(const std::vector<PackageMetadata>& pkg_list)
             dep.name = dep_vector.name;
             dep.version = dep_vector.version;
 
+            spdlog::info("  Add depends: {}_{}", dep.name, dep.version);
             depends.emplace_back(dep);
         }
         pgraph.add_depend(pkg);
@@ -234,9 +237,14 @@ void GSO::scc_dfs(std::size_t u, const Graph &graph, SCCState &state) {
     });
 }
 
-std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph) {
+std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph, const std::vector<std::size_t>& root_nodes) {
     SCCState state(graph.size());
-
+    
+    for (std::size_t root : root_nodes){
+        if(state.disc[root] == -1)
+            scc_dfs(root, graph, state);
+    }
+    
     for (std::size_t i = 0; i < graph.size(); i++) {
         if (state.disc[i] == -1) {
             scc_dfs(i, graph, state);
@@ -244,6 +252,26 @@ std::vector<EdgeToCut> GSO::scc_detection(const Graph &graph) {
     }
 
     return std::vector<EdgeToCut>(state.edges_to_cut.begin(), state.edges_to_cut.end());;
+}
+
+std::vector<std::size_t> GSO::resolve_roots(const Graph &graph){
+
+    std::vector<std::size_t> in_degree(graph.size(), 0);
+    for (std::size_t i = 0; i < graph.size(); i++) {
+        for (std::size_t neighbor : graph.neighbors(i)) {
+            in_degree[neighbor]++;
+        }
+    }
+
+    std::vector<std::size_t> root_nodes;
+    root_nodes.reserve(graph.size());
+    
+    for (std::size_t i = 0; i < graph.size(); i++) {
+        if (in_degree[i] == 0) {
+            root_nodes.push_back(i);
+        }
+    }
+    return root_nodes;
 }
 
 void GSO::resolve_scc(std::vector<EdgeToCut>& edges_to_cut) {

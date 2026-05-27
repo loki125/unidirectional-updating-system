@@ -310,7 +310,7 @@
                 data.forEach(pkg => {
                     const card = document.createElement('div');
                     card.className = "ui-panel p-4 cursor-pointer hover:border-slate-800 transition-colors flex flex-col";
-                    card.onclick = () => fetchPackageInfo(pkg.package_name || name, pkg.version, pkg.architecture || arch);
+                    card.onclick = () => fetchPackageInfo(pkg.package_name || name, pkg.binary_version, pkg.architecture || arch);
                     
                     card.innerHTML = `
                         <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-1">Identifier</div>
@@ -319,7 +319,7 @@
                         <div class="grid grid-cols-2 gap-2 mb-4">
                             <div>
                                 <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-0.5">Version</div>
-                                <div class="font-mono text-sm text-slate-700 truncate">${pkg.version}</div>
+                                <div class="font-mono text-sm text-slate-700 truncate">${pkg.binary_version}</div>
                             </div>
                             <div>
                                 <div class="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-0.5">Arch</div>

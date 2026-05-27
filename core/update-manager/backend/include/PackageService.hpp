@@ -48,14 +48,14 @@ public:
     /**
      * @brief Cleans up service resources and connections.
      */
-    virtual void cleanup() = 0;
+    virtual void cleanup() noexcept = 0;
 
     /**
      * @brief Retrieves available versions and instances for a package.
      * @param pkg_name The name of the package.
      * @return std::vector<json> List of JSON objects representing package instances.
      */
-    virtual std::vector<json> get_package_instances(const std::string& pkg_name) = 0;
+    virtual std::vector<json> get_package_instances(const std::string& pkg_name) noexcept = 0;
 
     /**
      * @brief Fetches detailed metadata for a specific package instance.
@@ -138,14 +138,14 @@ public:
     /**
      * @brief Resets the internal HTTP client.
      */
-    void cleanup() override;
+    void cleanup() noexcept override;
     
     /**
      * @brief Fetches package instance data from the Debian API.
      * @param pkg_name The name of the package.
      * @return std::vector<json> List of instances.
      */
-    std::vector<json> get_package_instances(const std::string& pkg_name) override;
+    std::vector<json> get_package_instances(const std::string& pkg_name) noexcept override;
     
     /**
      * @brief Retrieves binary file info and hashes from the Debian API.
@@ -227,7 +227,7 @@ private:
      * @param endpoint The API path to request.
      * @return json Parsed JSON object or nullptr on failure.
      */
-    json _get_json(const std::string& endpoint);
+    json _get_json(const std::string& endpoint) noexcept;
     
     /**
      * @brief Compares two Debian package versions using dpkg.
@@ -236,16 +236,19 @@ private:
      * @param v2 Second version.
      * @return true if the comparison holds, false otherwise.
      */
-    bool _compare_versions(const std::string& v1, const std::string& op, const std::string& v2);
+    bool _compare_versions(const std::string& v1, const std::string& op, const std::string& v2) noexcept;
     
     /**
      * @brief Finds the highest available version satisfying given constraints.
      * @param pkg_name The package name.
+     * @param target_arch the targeted architecture
      * @param constraints List of version constraints.
-     * @return std::string Best matching version string.
+     * @return a pair of Best matching version string and its arch.
      */
-    std::string _find_best_version(const std::string& pkg_name, 
-                                   const std::vector<std::pair<std::string, std::string>>& constraints);
+    std::pair<std::string, std::string> _find_best_version(
+        const std::string& pkg_name,
+        const std::string& target_arch,
+        const std::vector<std::pair<std::string, std::string>>& constraints) noexcept;
     
     /**
      * @brief Determines if a package version supports the target architecture or 'all'.
