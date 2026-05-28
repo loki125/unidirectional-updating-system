@@ -19,7 +19,6 @@ outside-net:
 vm:
 	./compose/scripts/static-vm.sh $(VM_PATH)
 
-# Helper for a full cleanup
 down:
 	$(MAKE) CMD=down networks
 	$(MAKE) CMD=down isolated-net

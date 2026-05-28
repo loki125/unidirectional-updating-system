@@ -14,7 +14,7 @@ void Graph::add_edge(std::size_t from, std::size_t to) {
 
 void Graph::rm_edge(std::size_t from, std::size_t to) {
     if (from >= adj_.size() || to >= adj_.size()) {
-        throw std::out_of_range("Graph::rm_edge: invalid node index");
+        throw std::out_of_range("invalid node index");
     }
     auto& neighbors = adj_[from];
     neighbors.erase(std::remove(neighbors.begin(), neighbors.end(), to), neighbors.end());
@@ -47,8 +47,11 @@ PackageGraph::PackageGraph(const std::vector<Package>& packages)
     
 }
 
-const Package &PackageGraph::get_package(std::size_t id) const
-{
+const Package& PackageGraph::get_package(std::size_t id) const {
+    return this->id_to_pkg[id];
+}
+
+Package& PackageGraph::get_package(std::size_t id) {
     return this->id_to_pkg[id];
 }
 
@@ -64,9 +67,11 @@ void PackageGraph::add_depend(const Package &pkg)
     
     for( const auto& depend : pkg.dependencies){
         std::size_t depend_id = this->add_pkg(depend);
-
-        // Add the edge
-        graph_.add_edge(pkg_id, depend_id);
+        try{
+            graph_.add_edge(pkg_id, depend_id);
+        } catch(const std::out_of_range& e){
+            throw std::out_of_range("failed to add edge " + pkg.name + " --> " + depend.name + ". " + e.what());
+        }
     }
 }
 
@@ -81,7 +86,7 @@ std::size_t PackageGraph::add_pkg(const Package& pkg){
     else{
         auto [found_pkg, found_id] = *it;
 
-        if(!pkg.package_json.is_null()){
+        if(pkg.package_metadata.is_init()){
             id_to_pkg[found_id] = pkg;
             pkg_to_id.erase(found_pkg);
             pkg_to_id[pkg] = found_id;

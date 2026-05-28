@@ -1,5 +1,5 @@
 #include <pybind11/pybind11.h>
-#include <pybind11/stl.h>  // IMPORTANT for vector/string conversions
+#include <pybind11/stl.h>  
 
 #include "CoreService.hpp"
 
@@ -13,12 +13,11 @@ PYBIND11_MODULE(core, m) {
 
         .def("process_and_broadcast",
             &CoreService::process_and_broadcast,
-            py::call_guard<py::gil_scoped_release>(), // Release GIL for this potentially long-running operation
+            py::call_guard<py::gil_scoped_release>(),
             py::arg("type"),
             py::arg("pkg"),
             py::arg("version"),
-            py::arg("arch"),
-            py::arg("volume_path")
+            py::arg("arch")
         )
 
         .def("get_package_instances",

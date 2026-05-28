@@ -7,8 +7,12 @@
 #include <mutex>
 #include <array>
 #include <tuple>
+#include <list>
 #include <unistd.h>
 #include <spawn.h>
+#include <map>
+#include <regex>
+#include <stdexcept>
 #include <sys/wait.h>
 
 // Third-party headers
@@ -19,10 +23,16 @@
 #define CONNECTION_TIMEOUT 10 // seconds
 #define READ_TIMEOUT 60 // seconds
 #define MAX_DOWNLOAD_RETRIES 3
+#define PROCESSING "processing"
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 extern char **environ; // Required for posix_spawn so Linker wont get angry
+
+using forest_map = std::map<fs::path, std::map<std::string, fs::path>>;
+using provider_vector = std::vector<std::tuple<std::string, std::string, bool>>; // provided_name, provided_soname, is_executable
+using provider_map = std::map<fs::path, provider_vector>;
+using constraint_map = std::map<std::string, std::vector<std::pair<std::string, std::string>>>;
 
 /*
     PACKGET SERVICE UTILS
@@ -35,8 +45,55 @@ extern char **environ; // Required for posix_spawn so Linker wont get angry
     - Constants for package management (e.g., ignored packages, essential packages) 
 */
 
-const std::set<std::string> IGNORE_PACKAGES = {"dpkg", "awk"};
-const std::set<std::string> ESSENTIAL_PACKAGES = {"base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"};
+static const std::set<std::string> SYS_PKGS = {"libc6", "base-files"};
+
+namespace DebianFields {
+    constexpr const char* Debian = "Debian";
+    constexpr const char* BREAK = "Breaks";
+    constexpr const char* REPLACES = "Replaces";
+    constexpr const char* PROVIDES = "Provides";
+    constexpr const char* R_PROVIDES = "Reverse Provides";
+    constexpr const char* CONFLICTS = "Conflicts";
+    constexpr const char* DEPENDS = "Depends";
+    constexpr const char* PRE_DEPENDS = "Pre-Depends";
+    constexpr const char* ARCH = "Architecture";
+    constexpr const char* PACKAGE = "Package";
+    constexpr const char* VERSION = "Version";
+    constexpr const char* INSTALLED_SIZE = "Installed-Size";
+    constexpr const char* SHA1 = "SHA1";
+    constexpr const char* SHA256 = "SHA256";
+
+    static const std::set<std::string> IGNORE_PACKAGES = {"dpkg"};
+    static const std::set<std::string> ESSENTIAL_PACKAGES = {
+        "base-files", "bash", "coreutils", "debianutils", "libc-bin", "util-linux"
+    };
+
+}
+
+namespace DpkgOps {
+    inline const std::string LT = "<<";
+    inline const std::string LE = "<=";
+    inline const std::string EQ = "=";
+    inline const std::string NE = "!=";
+    inline const std::string GE = ">=";
+    inline const std::string GT = ">>";
+
+    inline const std::string CMD_LT = "lt";
+    inline const std::string CMD_LE = "le";
+    inline const std::string CMD_EQ = "eq";
+    inline const std::string CMD_NE = "ne";
+    inline const std::string CMD_GE = "ge";
+    inline const std::string CMD_GT = "gt";
+
+    static const std::unordered_map<std::string, std::string> inverse_map = {
+        {LT,GE}, {LE, GT}, {EQ, NE}, {NE, EQ}, {GE, LT}, {GT, LE}
+    };
+    static const std::unordered_map<std::string, std::string> op_map = {
+        {LT, CMD_LT}, {LE, CMD_LE}, {EQ, CMD_EQ}, {NE, CMD_NE}, {GE, CMD_GE}, {GT, CMD_GT}
+    };
+    static const std::regex op_regex(R"(^([a-z0-9\+\-\.]+)(:([a-z0-9]+))?(\s*\((<<|<=|=|>=|>>)\s*([^)]+)\))?)");
+
+}
 
 struct CommandResult {
     int exit_code;
@@ -44,12 +101,35 @@ struct CommandResult {
     std::string stderr_res;
 };
 
+enum class ConflictType { SOFT, HARD };
+constexpr std::size_t CONFLICT_TYPE_THRESHOLD = 2;
+
+struct EdgeToCut {
+    std::size_t u;
+    std::size_t v;
+    ConflictType type;
+
+    bool operator<(const EdgeToCut& other) const {
+        if (u != other.u) return u < other.u;
+        return v < other.v;
+    }
+};
+
+class HardConflictException : public std::runtime_error {
+public:
+    std::string pkg_name;
+    std::string pkg_version;
+
+    HardConflictException(const std::string& name, const std::string& ver) 
+        : std::runtime_error("Hard conflict cycle detected"), pkg_name(name), pkg_version(ver) {}
+};
+
 /**
  * Executes a shell command, captures stdout and stderr separately,
  * and returns the exit status.
  */
 
- inline std::string encode_url(const std::string &value) {
+inline std::string encode_url(const std::string &value) {
     std::ostringstream escaped;
     escaped.fill('0');
     escaped << std::hex;
@@ -57,13 +137,11 @@ struct CommandResult {
     for (auto i = value.begin(), n = value.end(); i != n; ++i) {
         std::string::value_type c = (*i);
 
-        // Keep alphanumeric and other safe characters
         if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
             escaped << c;
             continue;
         }
 
-        // Any other characters are percent-encoded
         escaped << std::uppercase << '%' << std::setw(2) << int((unsigned char)c);
     }
 
@@ -71,7 +149,6 @@ struct CommandResult {
 }
 
 inline int execute_status_cmd(const std::string& cmd) {
-    // std::system returns the shell exit status directly
     int status = std::system(cmd.c_str());
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
@@ -88,11 +165,9 @@ inline CommandResult execute_command(const std::string& cmd) {
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
 
-    // Setup redirection in the child
     posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
     posix_spawn_file_actions_adddup2(&actions, err_pipe[1], STDERR_FILENO);
 
-    // Close the write-ends in the child so it doesn't leak them
     posix_spawn_file_actions_addclose(&actions, out_pipe[0]);
     posix_spawn_file_actions_addclose(&actions, out_pipe[1]);
     posix_spawn_file_actions_addclose(&actions, err_pipe[0]);
@@ -101,17 +176,13 @@ inline CommandResult execute_command(const std::string& cmd) {
     const char* argv[] = {"/bin/sh", "-c", cmd.c_str(), nullptr};
     pid_t pid;
     
-    // Spawn the process
     int status = posix_spawn(&pid, "/bin/sh", &actions, nullptr, (char* const*)argv, environ);
-    
-    // Cleanup file actions immediately after spawn
     posix_spawn_file_actions_destroy(&actions);
 
     if (status != 0) {
         return {-1, "", "posix_spawn failed"};
     }
 
-    // Parent process: Close the write-ends 
     close(out_pipe[1]);
     close(err_pipe[1]);
 
@@ -137,17 +208,28 @@ inline CommandResult execute_command(const std::string& cmd) {
     return {WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : -1, out, err};
 }
 
+struct Depend {
+    std::string name;
+    std::string version;
+    std::string arch;
+
+    json to_json() const {
+        return json::array({this->name, this->version, this->arch});
+    }
+};
+
 struct PackageMetadata {
     std::string Package;
     std::string Version;
     std::string Type;
     std::string Architecture;
     std::string Store_Path;
-    std::vector<std::vector<std::string>> Dependencies;
+    std::vector<Depend> Dependencies;
     std::string SHA256;
     long long Installed_Size = 0;
     long long Size = 0;
     std::string Filename;
+    json Recipe = {};
     bool Latest = false;
 
     std::string generate_id() const {
@@ -158,22 +240,31 @@ struct PackageMetadata {
         return package + "_" + version + "_" + arch;
     }
 
+    bool is_init() const {
+        return !Package.empty() && !Version.empty() && !Architecture.empty();
+    }
+
     void compute_store_path() {
         Store_Path = SHA256 + "-" + Package + "-" + Version;
     }
 
     json to_json() const {
+        std::vector<json> deps_json;
+        for (const auto& dep : this->Dependencies) 
+            deps_json.push_back(dep.to_json());
+
         return json{
             {"Package", this->Package},
             {"Version", this->Version},
             {"Type", this->Type},
             {"Architecture", this->Architecture},
             {"Store_Path", this->Store_Path},
-            {"Dependencies", this->Dependencies},
+            {"Dependencies", deps_json},
             {"SHA256", this->SHA256},
             {"Installed-Size", this->Installed_Size},
             {"Size", this->Size},
             {"Filename", this->Filename},
+            {"Recipe", this->Recipe},
             {"Latest", this->Latest},
         };
     }
@@ -204,7 +295,36 @@ struct UpdateManifest {
     }
 };
 
+namespace recipe {
+    constexpr const char* PACKAGE_NAME = "package_name";
+    constexpr const char* VERSION = "version";
+    constexpr const char* MOUNT_REQ = "required_mounts";
+    constexpr const char* MOUNT_SYS = "system_mounts";
+    constexpr const char* MOUNT_INS = "mount_instructions";
+    constexpr const char* STATUS = "status";
+    constexpr const char* SYMLINK_FOREST = "symlink_forest";
+    constexpr const char* PROVIDER_MAP = "provider_map";
+    constexpr const char* IS_SYSTEM = "is_system";
+}
 
+static const std::vector<std::string> ALLOWED_ROOTS = {
+    "usr/", "bin/", "lib/", "lib64/", "sbin/", "etc/", "opt/", "games/"
+};
+
+static const std::vector<std::string> BINARY_PATHS = {
+    "bin/", "sbin/", "games/"
+};
+
+// Define helper lambdas for readability
+inline bool has_allowed_prefix(const std::string& p) {
+    return std::any_of(ALLOWED_ROOTS.begin(), ALLOWED_ROOTS.end(),
+        [&](const auto& prefix) { return p.compare(0, prefix.size(), prefix) == 0; });
+}
+
+inline bool is_in_bin_dir(const std::string& p) {
+    return std::any_of(BINARY_PATHS.begin(), BINARY_PATHS.end(),
+        [&](const auto& dir) { return p.find(dir) != std::string::npos; });
+};
 /*
     BROADCASTER SERVICE UTILS
     -------------------------
@@ -219,7 +339,6 @@ struct ft_arguments {
   bool enable_ipsec = false;
   bool use_gzip = false;
   bool gen_etags = false;
-  const char *aes_key = {};
   unsigned short mcast_port = 40085;
   unsigned short mtu = 1500;
   uint32_t rate_limit = 1000;
@@ -231,11 +350,9 @@ struct fileEntry {
     std::shared_ptr<LibFlute::Transmitter::FileDescription> file;
     size_t transmitted_count;
     
-    // ADD THESE TWO LINES to keep the strings alive in memory
     std::string kept_path; 
     std::string kept_name;
 
-    // Update constructor to store them
     fileEntry(LibFlute::Transmitter::FileDescription* f, std::string p, std::string n)
         : file(f), transmitted_count(0), kept_path(std::move(p)), kept_name(std::move(n)) {}
 };

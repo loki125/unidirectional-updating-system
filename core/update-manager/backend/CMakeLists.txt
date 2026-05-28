@@ -29,6 +29,9 @@ set_target_properties(flute PROPERTIES
 
 pybind11_add_module(core
     src/Binding.cpp
+    src/UpdateBuilder.cpp
+    src/Algorithms.cpp
+    src/Graphs.cpp
     src/CoreService.cpp
     src/Broadcaster.cpp 
     src/PackageService.cpp

@@ -8,16 +8,11 @@ import core  #  C++ module
 
 app = FastAPI()
 
-# Static files (unchanged)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def read_index():
     return FileResponse('static/index.html')
-
-BROADCASTER_VOLUME = os.getenv("UPDATE_FILE_PATH")
-if BROADCASTER_VOLUME is None:
-    raise EnvironmentError("no volume path for broadcaster given")
 
 core_service = core.CoreService()
 
@@ -39,8 +34,7 @@ async def test_event(background_tasks: BackgroundTasks):
         "Debian",
         "libc6",
         "2.42-7",
-        "amd64",
-        BROADCASTER_VOLUME
+        "amd64"
     )
 
     return {"status": "broadcast started"}
@@ -59,8 +53,7 @@ async def broadcast_event(
         "Debian",
         package_name,
         version,
-        architecture,
-        BROADCASTER_VOLUME
+        architecture
     )
 
     return {"status": "broadcast started"}
@@ -72,7 +65,6 @@ async def get_package_metadata(package_name: str, type: str):
     if not raw_list:
         return {"error": "Package not found"}
 
-    # each item is JSON string → convert
     return [json.loads(item) for item in raw_list]
 
 @app.get("/info")

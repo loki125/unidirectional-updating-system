@@ -25,7 +25,6 @@ RUN cd deps/rt-libflute \
 RUN mkdir -p deps/httplib \
  && curl -L https://raw.githubusercontent.com/yhirose/cpp-httplib/master/httplib.h -o deps/httplib/httplib.h
 
-# Copy Backend Source and Build C++ Module
 COPY backend/ .
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build -j 1
@@ -35,7 +34,6 @@ RUN cp build/core*.so /usr/local/lib/python3.12/site-packages/
 
 WORKDIR /app
 
-# Copy Frontend (Python) Code
 COPY frontend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY frontend/ . 

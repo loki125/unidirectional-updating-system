@@ -9,21 +9,16 @@
 
 void FluteReceiver::set_receiver()
 {
-    // Create the receiver
     this->receiver = std::make_unique<LibFlute::Receiver>(
         this->args.flute_interface.data(),
         this->args.mcast_target.data(),
         (short)this->args.mcast_port,
         this->args.tsi,
-        this->io);
-
-    // Configure IPSEC, if enabled
-    if (this->args.enable_ipsec){
-      this->receiver->enable_ipsec(1, this->args.aes_key);
-    }
+        this->io
+    );
 
     this->receiver->register_completion_callback(
-      [this, output_path = this->args.output_path](std::shared_ptr<LibFlute::File> file) { //NOLINT
+      [this, output_path = this->args.output_path](std::shared_ptr<LibFlute::File> file) { 
         std::filesystem::path out_file, file_name = std::filesystem::path(file->meta().content_location).filename();
         if (!output_path.empty()) 
             out_file = std::filesystem::path(output_path) / file_name;
